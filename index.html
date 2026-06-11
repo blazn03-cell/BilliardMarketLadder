@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Pool Market Ladder · Own the Action</title>
+<title>BilliardsMarketLadder · Own the Action</title>
 <style>
 /* ─── RESET ─────────────────────────────────────────────── */
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -185,6 +185,60 @@ body { background:var(--bg); color:var(--white); font-family:-apple-system,Blink
 .btn-stripe:hover { background:#00ffb0; }
 .modal-fine { font-size:11px; color:var(--gray); text-align:center; line-height:1.5; }
 
+/* ─── STANDINGS ──────────────────────────────────────────── */
+.std-table { width:100%; border-collapse:collapse; }
+.std-table th { font-size:11px; color:var(--gray); font-weight:700; letter-spacing:.5px; text-align:left; padding:0 10px 12px; border-bottom:1px solid var(--border); }
+.std-table td { padding:11px 10px; font-size:14px; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle; }
+.std-table tr:last-child td { border-bottom:none; }
+.std-table tr:hover td { background:rgba(255,255,255,.025); }
+.std-pos { font-size:18px; font-weight:900; min-width:36px; }
+.std-name { font-weight:800; font-size:15px; }
+.std-bar { font-size:11px; color:var(--gray); }
+.std-num { font-weight:700; text-align:center; }
+.std-pct { color:var(--green); font-weight:700; text-align:center; }
+.std-pts { font-weight:900; font-size:16px; text-align:center; color:var(--gold); }
+.std-th-c { text-align:center; }
+.playoff-line { border-top:2px solid rgba(68,136,255,.4) !important; }
+
+/* ─── MATCH RESULTS ──────────────────────────────────────── */
+.week-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:18px; }
+.week-tab { background:var(--card); border:1px solid var(--border); color:var(--gray); font-size:12px; font-weight:700; padding:7px 14px; border-radius:100px; cursor:pointer; transition:all .15s; }
+.week-tab.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+.week-tab:hover:not(.active) { border-color:var(--dim); color:var(--white); }
+.match-table { width:100%; border-collapse:collapse; }
+.match-table th { font-size:10px; color:var(--gray); font-weight:700; letter-spacing:.5px; padding:0 10px 10px; border-bottom:1px solid var(--border); text-align:left; }
+.match-table td { padding:10px 10px; font-size:13px; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle; }
+.match-table tr:last-child td { border-bottom:none; }
+.match-num { color:var(--gray); font-size:11px; font-weight:700; }
+.match-vs { display:flex; align-items:center; gap:10px; }
+.match-player { font-weight:800; font-size:14px; }
+.match-score { font-size:12px; color:var(--gray); font-weight:700; min-width:40px; text-align:center; }
+.match-winner { font-weight:900; color:var(--green); font-size:13px; }
+.match-pending { color:var(--gray); font-style:italic; font-size:12px; }
+.match-winner-a .match-a { color:var(--gold); }
+.match-winner-b .match-b { color:var(--gold); }
+
+/* ─── PLAYOFFS ───────────────────────────────────────────── */
+.playoff-seeds { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin-bottom:24px; }
+.seed-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px 16px; display:flex; align-items:center; gap:12px; }
+.seed-num { font-size:24px; font-weight:900; min-width:36px; color:var(--gray); }
+.seed-num.s1 { color:var(--gold); }
+.seed-num.s2 { color:#c0c0c0; }
+.seed-num.s3 { color:#cd7f32; }
+.seed-info { flex:1; }
+.seed-name { font-size:15px; font-weight:800; }
+.seed-record { font-size:11px; color:var(--gray); margin-top:2px; }
+.seed-pos { font-size:20px; }
+.bracket-wrap { background:var(--card); border:1px solid var(--border); border-radius:18px; padding:22px; overflow-x:auto; }
+.bracket-row { display:flex; gap:14px; margin-bottom:10px; align-items:center; flex-wrap:wrap; }
+.bracket-match { background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:180px; }
+.bracket-round { font-size:10px; color:var(--gray); font-weight:700; letter-spacing:.5px; margin-bottom:8px; }
+.bracket-player { display:flex; justify-content:space-between; align-items:center; padding:5px 0; font-size:13px; font-weight:700; border-bottom:1px solid rgba(255,255,255,.06); }
+.bracket-player:last-child { border-bottom:none; padding-bottom:0; }
+.bracket-player.winner { color:var(--gold); }
+.bracket-seed { color:var(--gray); font-size:10px; font-weight:700; min-width:18px; }
+.bracket-score { font-size:12px; color:var(--gray); }
+
 /* ─── FOOTER ─────────────────────────────────────────────── */
 footer { text-align:center; padding:40px 20px; border-top:1px solid var(--border); color:var(--gray); font-size:13px; }
 footer .logo { font-size:24px; margin-bottom:8px; }
@@ -228,6 +282,59 @@ footer .name { font-weight:800; color:var(--white); margin-bottom:4px; font-size
     <div class="sec-sub">Price locks in at purchase · Rises with standings · Every investor gets paid at playoffs</div>
   </div>
   <div class="player-grid" id="playerGrid"></div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ STANDINGS ════════ -->
+<div class="wrap">
+  <div class="sec-head">
+    <div class="sec-title">🏆 Standings</div>
+    <div class="sec-sub">Updated after each match night · Top 8 advance to playoffs</div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="std-table">
+      <thead>
+        <tr>
+          <th>POS</th><th>PLAYER</th>
+          <th class="std-th-c">W</th><th class="std-th-c">L</th><th class="std-th-c">T</th>
+          <th class="std-th-c">WIN%</th><th class="std-th-c">PTS</th>
+        </tr>
+      </thead>
+      <tbody id="standingsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ MATCH RESULTS ════════ -->
+<div class="wrap">
+  <div class="sec-head">
+    <div class="sec-title">📋 Match Results</div>
+    <div class="sec-sub">8 weeks · 8 matches per week · 16 players</div>
+  </div>
+  <div class="week-tabs" id="weekTabs"></div>
+  <div style="overflow-x:auto">
+    <table class="match-table">
+      <thead>
+        <tr><th>#</th><th>PLAYER A</th><th>SCORE</th><th>PLAYER B</th><th>WINNER</th></tr>
+      </thead>
+      <tbody id="matchBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ PLAYOFFS ════════ -->
+<div class="wrap">
+  <div class="sec-head">
+    <div class="sec-title">🎯 Playoff Bracket</div>
+    <div class="sec-sub">Top 8 seeds from standings · Single elimination</div>
+  </div>
+  <div class="playoff-seeds" id="playoffSeeds"></div>
+  <div class="bracket-wrap" id="playoffBracket"></div>
 </div>
 
 <div class="divider"></div>
@@ -460,7 +567,7 @@ footer .name { font-weight:800; color:var(--white); margin-bottom:4px; font-size
 <!-- ════════ FOOTER ════════ -->
 <footer>
   <div class="logo">🎱</div>
-  <div class="name">Pool Market Ladder</div>
+  <div class="name">BilliardsMarketLadder</div>
   <div>Secure payments by Stripe · Shares tracked on device</div>
   <div style="margin-top:8px;font-size:11px">Operator: keep your Stripe receipt as proof of purchase</div>
 </footer>
@@ -537,24 +644,124 @@ const CONFIG = {
   // duesPaid:  true = dues current | false = dues owed
   // duesDue:   "YYYY-MM-DD" date dues were expected (set when they play unpaid)
   //            After 2 days past this date with duesPaid:false → auto-locks
+  // League structure (from spreadsheet)
+  weeks: 8,
+
   players: [
-    { name:"Marcus P.",  rank:1,  bar:"Bar One",   locked:false, hot:true,  streak:"W W W W W", duesPaid:true,  duesDue:null },
-    { name:"Jake T.",    rank:2,  bar:"Bar Two",   locked:false, hot:true,  streak:"W W W L W", duesPaid:true,  duesDue:null },
-    { name:"Darius M.",  rank:3,  bar:"Bar Three", locked:false, hot:false, streak:"W L W W L", duesPaid:true,  duesDue:null },
-    { name:"Caleb R.",   rank:4,  bar:"Bar One",   locked:false, hot:false, streak:"L W W L W", duesPaid:true,  duesDue:null },
-    { name:"Derek S.",   rank:5,  bar:"Bar Four",  locked:false, hot:true,  streak:"W W L W W", duesPaid:true,  duesDue:null },
-    { name:"Tony B.",    rank:6,  bar:"Bar Two",   locked:false, hot:false, streak:"L L W W W", duesPaid:true,  duesDue:null },
-    { name:"Ray W.",     rank:7,  bar:"Bar Three", locked:false, hot:false, streak:"W L L W L", duesPaid:true,  duesDue:null },
-    { name:"Chris L.",   rank:8,  bar:"Bar Four",  locked:false, hot:false, streak:"L W L L W", duesPaid:true,  duesDue:null },
-    { name:"Mike H.",    rank:9,  bar:"Bar One",   locked:false, hot:false, streak:"W L L L L", duesPaid:true,  duesDue:null },
-    { name:"Sam K.",     rank:10, bar:"Bar Two",   locked:false, hot:false, streak:"L L W L L", duesPaid:true,  duesDue:null },
-    { name:"Leo G.",     rank:11, bar:"Bar Three", locked:false, hot:false, streak:"L L L W L", duesPaid:true,  duesDue:null },
-    { name:"Nate F.",    rank:12, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L W", duesPaid:true,  duesDue:null },
-    { name:"Omar J.",    rank:13, bar:"Bar One",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
-    { name:"Paul D.",    rank:14, bar:"Bar Two",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
-    { name:"Quan A.",    rank:15, bar:"Bar Three", locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
-    { name:"Ron V.",     rank:16, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
+    // wins/losses/ties: update each week after matches
+    // rank auto-sets order; wins×2+ties=points for standings
+    { name:"Marcus P.",  rank:1,  bar:"Bar One",   locked:false, hot:true,  streak:"W W W W W", duesPaid:true,  duesDue:null, wins:5, losses:0, ties:0 },
+    { name:"Jake T.",    rank:2,  bar:"Bar Two",   locked:false, hot:true,  streak:"W W W L W", duesPaid:true,  duesDue:null, wins:4, losses:1, ties:0 },
+    { name:"Darius M.",  rank:3,  bar:"Bar Three", locked:false, hot:false, streak:"W L W W L", duesPaid:true,  duesDue:null, wins:3, losses:2, ties:0 },
+    { name:"Caleb R.",   rank:4,  bar:"Bar One",   locked:false, hot:false, streak:"L W W L W", duesPaid:true,  duesDue:null, wins:3, losses:2, ties:0 },
+    { name:"Derek S.",   rank:5,  bar:"Bar Four",  locked:false, hot:true,  streak:"W W L W W", duesPaid:true,  duesDue:null, wins:3, losses:2, ties:0 },
+    { name:"Tony B.",    rank:6,  bar:"Bar Two",   locked:false, hot:false, streak:"L L W W W", duesPaid:true,  duesDue:null, wins:3, losses:2, ties:0 },
+    { name:"Ray W.",     rank:7,  bar:"Bar Three", locked:false, hot:false, streak:"W L L W L", duesPaid:true,  duesDue:null, wins:2, losses:3, ties:0 },
+    { name:"Chris L.",   rank:8,  bar:"Bar Four",  locked:false, hot:false, streak:"L W L L W", duesPaid:true,  duesDue:null, wins:2, losses:3, ties:0 },
+    { name:"Mike H.",    rank:9,  bar:"Bar One",   locked:false, hot:false, streak:"W L L L L", duesPaid:true,  duesDue:null, wins:1, losses:4, ties:0 },
+    { name:"Sam K.",     rank:10, bar:"Bar Two",   locked:false, hot:false, streak:"L L W L L", duesPaid:true,  duesDue:null, wins:1, losses:4, ties:0 },
+    { name:"Leo G.",     rank:11, bar:"Bar Three", locked:false, hot:false, streak:"L L L W L", duesPaid:true,  duesDue:null, wins:1, losses:4, ties:0 },
+    { name:"Nate F.",    rank:12, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L W", duesPaid:true,  duesDue:null, wins:1, losses:4, ties:0 },
+    { name:"Omar J.",    rank:13, bar:"Bar One",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null, wins:0, losses:5, ties:0 },
+    { name:"Paul D.",    rank:14, bar:"Bar Two",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null, wins:0, losses:5, ties:0 },
+    { name:"Quan A.",    rank:15, bar:"Bar Three", locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null, wins:0, losses:5, ties:0 },
+    { name:"Ron V.",     rank:16, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null, wins:0, losses:5, ties:0 },
   ],
+
+  // ── MATCH RESULTS — UPDATE EACH WEEK ────────────────────
+  // winner: "" = not played yet | playerA name | playerB name | "Tie"
+  // 8 weeks × 8 matches per week = 64 total matches
+  matchResults: [
+    // WEEK 1
+    { match:1, week:1, playerA:"Marcus P.", playerB:"Ron V.",   aScore:2, bScore:0, winner:"Marcus P." },
+    { match:2, week:1, playerA:"Jake T.",   playerB:"Quan A.",  aScore:2, bScore:0, winner:"Jake T."   },
+    { match:3, week:1, playerA:"Darius M.", playerB:"Paul D.",  aScore:2, bScore:1, winner:"Darius M." },
+    { match:4, week:1, playerA:"Caleb R.",  playerB:"Omar J.",  aScore:2, bScore:0, winner:"Caleb R."  },
+    { match:5, week:1, playerA:"Derek S.",  playerB:"Nate F.",  aScore:2, bScore:1, winner:"Derek S."  },
+    { match:6, week:1, playerA:"Tony B.",   playerB:"Leo G.",   aScore:2, bScore:0, winner:"Tony B."   },
+    { match:7, week:1, playerA:"Ray W.",    playerB:"Sam K.",   aScore:2, bScore:1, winner:"Ray W."    },
+    { match:8, week:1, playerA:"Chris L.",  playerB:"Mike H.",  aScore:2, bScore:1, winner:"Chris L."  },
+    // WEEK 2
+    { match:9,  week:2, playerA:"Marcus P.", playerB:"Quan A.",  aScore:2, bScore:0, winner:"Marcus P." },
+    { match:10, week:2, playerA:"Jake T.",   playerB:"Ron V.",   aScore:2, bScore:0, winner:"Jake T."   },
+    { match:11, week:2, playerA:"Derek S.",  playerB:"Paul D.",  aScore:2, bScore:0, winner:"Derek S."  },
+    { match:12, week:2, playerA:"Tony B.",   playerB:"Omar J.",  aScore:2, bScore:0, winner:"Tony B."   },
+    { match:13, week:2, playerA:"Darius M.", playerB:"Nate F.",  aScore:2, bScore:0, winner:"Darius M." },
+    { match:14, week:2, playerA:"Caleb R.",  playerB:"Leo G.",   aScore:2, bScore:0, winner:"Caleb R."  },
+    { match:15, week:2, playerA:"Ray W.",    playerB:"Mike H.",  aScore:1, bScore:2, winner:"Mike H."   },
+    { match:16, week:2, playerA:"Chris L.",  playerB:"Sam K.",   aScore:1, bScore:2, winner:"Sam K."    },
+    // WEEK 3
+    { match:17, week:3, playerA:"Marcus P.", playerB:"Paul D.",  aScore:2, bScore:0, winner:"Marcus P." },
+    { match:18, week:3, playerA:"Jake T.",   playerB:"Omar J.",  aScore:2, bScore:0, winner:"Jake T."   },
+    { match:19, week:3, playerA:"Derek S.",  playerB:"Nate F.",  aScore:2, bScore:0, winner:"Derek S."  },
+    { match:20, week:3, playerA:"Tony B.",   playerB:"Leo G.",   aScore:0, bScore:2, winner:"Leo G."    },
+    { match:21, week:3, playerA:"Darius M.", playerB:"Sam K.",   aScore:2, bScore:0, winner:"Darius M." },
+    { match:22, week:3, playerA:"Caleb R.",  playerB:"Mike H.",  aScore:0, bScore:2, winner:"Mike H."   },
+    { match:23, week:3, playerA:"Ray W.",    playerB:"Ron V.",   aScore:2, bScore:0, winner:"Ray W."    },
+    { match:24, week:3, playerA:"Chris L.",  playerB:"Quan A.",  aScore:2, bScore:0, winner:"Chris L."  },
+    // WEEK 4
+    { match:25, week:4, playerA:"Marcus P.", playerB:"Omar J.",  aScore:2, bScore:0, winner:"Marcus P." },
+    { match:26, week:4, playerA:"Jake T.",   playerB:"Nate F.",  aScore:2, bScore:0, winner:"Jake T."   },
+    { match:27, week:4, playerA:"Derek S.",  playerB:"Sam K.",   aScore:2, bScore:0, winner:"Derek S."  },
+    { match:28, week:4, playerA:"Tony B.",   playerB:"Mike H.",  aScore:2, bScore:0, winner:"Tony B."   },
+    { match:29, week:4, playerA:"Darius M.", playerB:"Ron V.",   aScore:2, bScore:0, winner:"Darius M." },
+    { match:30, week:4, playerA:"Caleb R.",  playerB:"Quan A.",  aScore:2, bScore:0, winner:"Caleb R."  },
+    { match:31, week:4, playerA:"Ray W.",    playerB:"Leo G.",   aScore:0, bScore:2, winner:"Leo G."    },
+    { match:32, week:4, playerA:"Chris L.",  playerB:"Paul D.",  aScore:2, bScore:0, winner:"Chris L."  },
+    // WEEK 5
+    { match:33, week:5, playerA:"Marcus P.", playerB:"Nate F.",  aScore:2, bScore:0, winner:"Marcus P." },
+    { match:34, week:5, playerA:"Jake T.",   playerB:"Sam K.",   aScore:2, bScore:1, winner:"Jake T."   },
+    { match:35, week:5, playerA:"Derek S.",  playerB:"Ron V.",   aScore:2, bScore:0, winner:"Derek S."  },
+    { match:36, week:5, playerA:"Tony B.",   playerB:"Quan A.",  aScore:0, bScore:2, winner:"Quan A."   },
+    { match:37, week:5, playerA:"Darius M.", playerB:"Mike H.",  aScore:2, bScore:0, winner:"Darius M." },
+    { match:38, week:5, playerA:"Caleb R.",  playerB:"Leo G.",   aScore:1, bScore:2, winner:"Leo G."    },
+    { match:39, week:5, playerA:"Ray W.",    playerB:"Paul D.",  aScore:2, bScore:0, winner:"Ray W."    },
+    { match:40, week:5, playerA:"Chris L.",  playerB:"Omar J.",  aScore:2, bScore:0, winner:"Chris L."  },
+    // WEEKS 6–8 not played yet
+    { match:41, week:6, playerA:"Marcus P.", playerB:"Sam K.",   aScore:0, bScore:0, winner:"" },
+    { match:42, week:6, playerA:"Jake T.",   playerB:"Leo G.",   aScore:0, bScore:0, winner:"" },
+    { match:43, week:6, playerA:"Derek S.",  playerB:"Mike H.",  aScore:0, bScore:0, winner:"" },
+    { match:44, week:6, playerA:"Tony B.",   playerB:"Paul D.",  aScore:0, bScore:0, winner:"" },
+    { match:45, week:6, playerA:"Darius M.", playerB:"Quan A.",  aScore:0, bScore:0, winner:"" },
+    { match:46, week:6, playerA:"Caleb R.",  playerB:"Ron V.",   aScore:0, bScore:0, winner:"" },
+    { match:47, week:6, playerA:"Ray W.",    playerB:"Nate F.",  aScore:0, bScore:0, winner:"" },
+    { match:48, week:6, playerA:"Chris L.",  playerB:"Omar J.",  aScore:0, bScore:0, winner:"" },
+    { match:49, week:7, playerA:"Marcus P.", playerB:"Leo G.",   aScore:0, bScore:0, winner:"" },
+    { match:50, week:7, playerA:"Jake T.",   playerB:"Mike H.",  aScore:0, bScore:0, winner:"" },
+    { match:51, week:7, playerA:"Derek S.",  playerB:"Quan A.",  aScore:0, bScore:0, winner:"" },
+    { match:52, week:7, playerA:"Tony B.",   playerB:"Ron V.",   aScore:0, bScore:0, winner:"" },
+    { match:53, week:7, playerA:"Darius M.", playerB:"Paul D.",  aScore:0, bScore:0, winner:"" },
+    { match:54, week:7, playerA:"Caleb R.",  playerB:"Nate F.",  aScore:0, bScore:0, winner:"" },
+    { match:55, week:7, playerA:"Ray W.",    playerB:"Omar J.",  aScore:0, bScore:0, winner:"" },
+    { match:56, week:7, playerA:"Chris L.",  playerB:"Sam K.",   aScore:0, bScore:0, winner:"" },
+    { match:57, week:8, playerA:"Marcus P.", playerB:"Mike H.",  aScore:0, bScore:0, winner:"" },
+    { match:58, week:8, playerA:"Jake T.",   playerB:"Quan A.",  aScore:0, bScore:0, winner:"" },
+    { match:59, week:8, playerA:"Derek S.",  playerB:"Paul D.",  aScore:0, bScore:0, winner:"" },
+    { match:60, week:8, playerA:"Tony B.",   playerB:"Ron V.",   aScore:0, bScore:0, winner:"" },
+    { match:61, week:8, playerA:"Darius M.", playerB:"Omar J.",  aScore:0, bScore:0, winner:"" },
+    { match:62, week:8, playerA:"Caleb R.",  playerB:"Sam K.",   aScore:0, bScore:0, winner:"" },
+    { match:63, week:8, playerA:"Ray W.",    playerB:"Nate F.",  aScore:0, bScore:0, winner:"" },
+    { match:64, week:8, playerA:"Chris L.",  playerB:"Leo G.",   aScore:0, bScore:0, winner:"" },
+  ],
+
+  // ── PLAYOFFS — filled in after Week 8 ──────────────────
+  // seed: 1-8 | player: name | bracket matches added after seeding
+  playoffs: {
+    seeded: false,  // set to true after regular season ends
+    seeds: [],      // auto-populated from standings when seeded=true
+    bracket: [
+      // QF: seeds 1v8, 2v7, 3v6, 4v5
+      { match:1, round:"QF",   seed_a:1, seed_b:8, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      { match:2, round:"QF",   seed_a:2, seed_b:7, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      { match:3, round:"QF",   seed_a:3, seed_b:6, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      { match:4, round:"QF",   seed_a:4, seed_b:5, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      // SF
+      { match:5, round:"SEMI", seed_a:0, seed_b:0, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      { match:6, round:"SEMI", seed_a:0, seed_b:0, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+      // Final
+      { match:7, round:"FINAL",seed_a:0, seed_b:0, playerA:"TBD", playerB:"TBD", aScore:0, bScore:0, winner:"" },
+    ],
+  },
 };
 
 
@@ -639,6 +846,153 @@ function stripeUrl(price, qty) {
   const base = CONFIG.stripe[price];
   if (!base || base.includes("REPLACE")) return null;
   return `${base}?quantity=${qty}`;
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  STANDINGS                                            ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildStandings() {
+  // Sort players by points (wins×2 + ties), then win%, then name
+  const sorted = [...CONFIG.players].map(p => {
+    const pts = p.wins * 2 + p.ties;
+    const gp  = p.wins + p.losses + p.ties;
+    const pct = gp ? (p.wins / gp) : 0;
+    return { ...p, pts, pct, gp };
+  }).sort((a,b) => b.pts - a.pts || b.pct - a.pct || a.name.localeCompare(b.name));
+
+  const rows = sorted.map((p, i) => {
+    const pos = i + 1;
+    let medal = pos === 1 ? "🥇" : pos === 2 ? "🥈" : pos === 3 ? "🥉" : `${pos}`;
+    const playoff = pos <= 8;
+    const pctStr = p.gp ? (p.pct * 100).toFixed(0) + "%" : "—";
+    return `
+<tr class="${pos===8 ? 'playoff-line' : ''}">
+  <td class="std-pos ${pos<=3?'':'style=""'}"
+    style="${pos===1?'color:var(--gold)':pos===2?'color:#c0c0c0':pos===3?'color:#cd7f32':''}">${medal}</td>
+  <td>
+    <div class="std-name" style="${playoff?'color:var(--white)':'color:var(--gray)'}">${p.name}</div>
+    <div class="std-bar">${p.bar} ${playoff?'<span style="color:var(--blue);font-size:10px;font-weight:800">● PLAYOFF</span>':''}</div>
+  </td>
+  <td class="std-num" style="color:var(--green)">${p.wins}</td>
+  <td class="std-num" style="color:var(--red)">${p.losses}</td>
+  <td class="std-num" style="color:var(--gray)">${p.ties}</td>
+  <td class="std-pct">${pctStr}</td>
+  <td class="std-pts">${p.pts}</td>
+</tr>`;
+  }).join("");
+  document.getElementById("standingsBody").innerHTML = rows;
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  MATCH RESULTS                                        ║
+// ╚═══════════════════════════════════════════════════════╝
+let activeWeek = 1;
+
+function buildWeekTabs() {
+  const tabs = document.getElementById("weekTabs");
+  if (!tabs) return;
+  // Find the latest week with any results
+  const latestPlayed = CONFIG.matchResults.filter(m => m.winner).reduce((mx, m) => Math.max(mx, m.week), 1);
+  activeWeek = latestPlayed;
+  tabs.innerHTML = Array.from({length: CONFIG.weeks}, (_, i) => i + 1).map(w => {
+    const played = CONFIG.matchResults.filter(m => m.week === w && m.winner).length;
+    return `<button class="week-tab ${w===activeWeek?'active':''}" onclick="showWeek(${w})">
+      WK ${w}${played === 8 ? ' ✓' : played > 0 ? ' ·' : ''}
+    </button>`;
+  }).join("");
+}
+
+function showWeek(w) {
+  activeWeek = w;
+  document.querySelectorAll(".week-tab").forEach((t, i) => {
+    t.classList.toggle("active", i + 1 === w);
+  });
+  renderMatches(w);
+}
+
+function renderMatches(w) {
+  const body = document.getElementById("matchBody");
+  if (!body) return;
+  const wk = CONFIG.matchResults.filter(m => m.week === w);
+  body.innerHTML = wk.map(m => {
+    const played = !!m.winner;
+    const aWon = m.winner === m.playerA;
+    const bWon = m.winner === m.playerB;
+    const tie  = m.winner === "Tie";
+    return `
+<tr class="${aWon?'match-winner-a':bWon?'match-winner-b':''}">
+  <td class="match-num">${m.match}</td>
+  <td><span class="match-player match-a" style="${aWon||tie?'color:var(--gold)':''}">${m.playerA}</span></td>
+  <td class="match-score">${played ? `${m.aScore} – ${m.bScore}` : 'vs'}</td>
+  <td><span class="match-player match-b" style="${bWon||tie?'color:var(--gold)':''}">${m.playerB}</span></td>
+  <td>${played
+    ? `<span class="match-winner">${tie ? '🤝 Tie' : (aWon ? m.playerA : m.playerB)}</span>`
+    : `<span class="match-pending">Upcoming</span>`}</td>
+</tr>`;
+  }).join("");
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  PLAYOFFS                                             ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildPlayoffs() {
+  const seedsEl   = document.getElementById("playoffSeeds");
+  const bracketEl = document.getElementById("playoffBracket");
+  if (!seedsEl || !bracketEl) return;
+
+  // Compute top 8 from standings
+  const sorted = [...CONFIG.players].map(p => {
+    const pts = p.wins * 2 + p.ties;
+    const gp  = p.wins + p.losses + p.ties;
+    const pct = gp ? p.wins / gp : 0;
+    return { ...p, pts, pct };
+  }).sort((a,b) => b.pts - a.pts || b.pct - a.pct || a.name.localeCompare(b.name)).slice(0, 8);
+
+  // Seeds
+  seedsEl.innerHTML = sorted.map((p, i) => {
+    const seed = i + 1;
+    const medal = seed===1?"🥇":seed===2?"🥈":seed===3?"🥉":"";
+    const gp = p.wins + p.losses + p.ties;
+    return `
+<div class="seed-card">
+  <div class="seed-num s${seed<=3?seed:''}">${seed}</div>
+  <div class="seed-info">
+    <div class="seed-name">${p.name}</div>
+    <div class="seed-record">${p.wins}W – ${p.losses}L${p.ties?` – ${p.ties}T`:''} · ${p.pts} pts</div>
+  </div>
+  <div class="seed-pos">${medal}</div>
+</div>`;
+  }).join("");
+
+  // Bracket
+  const rounds = [
+    { label:"QUARTERFINALS", matches: CONFIG.playoffs.bracket.filter(m=>m.round==="QF") },
+    { label:"SEMIFINALS",    matches: CONFIG.playoffs.bracket.filter(m=>m.round==="SEMI") },
+    { label:"CHAMPIONSHIP",  matches: CONFIG.playoffs.bracket.filter(m=>m.round==="FINAL") },
+  ];
+
+  bracketEl.innerHTML = rounds.map(r => `
+<div style="margin-bottom:20px">
+  <div style="font-size:11px;color:var(--gray);font-weight:800;letter-spacing:1px;margin-bottom:10px">${r.label}</div>
+  <div class="bracket-row">
+    ${r.matches.map(m => {
+      const played = !!m.winner;
+      const aWon = m.winner === m.playerA;
+      const bWon = m.winner === m.playerB;
+      const saLabel = m.seed_a ? `<span class="bracket-seed">${m.seed_a}</span>` : "";
+      const sbLabel = m.seed_b ? `<span class="bracket-seed">${m.seed_b}</span>` : "";
+      return `
+<div class="bracket-match">
+  <div class="bracket-round">${r.label.slice(0,4)} M${m.match}</div>
+  <div class="bracket-player ${aWon?'winner':''}">${saLabel}${m.playerA}<span class="bracket-score">${played?m.aScore:''}</span></div>
+  <div class="bracket-player ${bWon?'winner':''}">${sbLabel}${m.playerB}<span class="bracket-score">${played?m.bScore:''}</span></div>
+</div>`;
+    }).join("")}
+  </div>
+</div>`).join("");
 }
 
 
@@ -1025,6 +1379,10 @@ buildStats();
 buildGrid();
 buildMath();
 buildPortfolio();
+buildStandings();
+buildWeekTabs();
+renderMatches(activeWeek);
+buildPlayoffs();
 </script>
 </body>
 </html>
