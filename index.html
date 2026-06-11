@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pool Market Ladder · Own the Action</title>
+<style>
+/* ─── RESET ─────────────────────────────────────────────── */
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+:root {
+  --bg:#060610; --card:#0e0e1e; --card2:#12122a; --border:#1a1a35;
+  --green:#00e5a0; --red:#ff3b5c; --gold:#ffd700; --blue:#4488ff;
+  --purple:#c470f5; --orange:#ff9500; --white:#f0f0ff; --gray:#6060a0; --dim:#282848;
+}
+html { scroll-behavior: smooth; }
+body { background:var(--bg); color:var(--white); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height:100vh; overflow-x:hidden; }
+
+/* ─── TICKER ─────────────────────────────────────────────── */
+.ticker-wrap { background:#000; border-bottom:1px solid var(--border); overflow:hidden; height:38px; display:flex; align-items:center; position:sticky; top:0; z-index:200; }
+.ticker-label { background:var(--red); color:#fff; font-size:11px; font-weight:800; letter-spacing:1.5px; padding:0 12px; height:100%; display:flex; align-items:center; flex-shrink:0; gap:6px; }
+.live-dot { width:7px; height:7px; background:#fff; border-radius:50%; animation:pulse 1.5s infinite; }
+.ticker-track { overflow:hidden; flex:1; }
+.ticker-scroll { display:flex; animation:scroll 40s linear infinite; white-space:nowrap; will-change:transform; }
+.ticker-scroll:hover { animation-play-state:paused; }
+.t-item { display:inline-flex; align-items:center; gap:6px; padding:0 20px; font-size:12px; font-weight:600; }
+.t-name { color:var(--gray); }
+.t-price { color:var(--white); }
+.t-badge-hot { color:var(--orange); }
+.t-badge-lock { color:var(--gold); }
+.t-sep { color:var(--border); }
+@keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+/* ─── HERO ───────────────────────────────────────────────── */
+.hero { text-align:center; padding:56px 20px 44px; background:radial-gradient(ellipse at 50% -20%,rgba(68,136,255,.18),transparent 65%); position:relative; }
+.hero-eyebrow { display:inline-flex; align-items:center; gap:7px; background:rgba(0,229,160,.1); border:1px solid rgba(0,229,160,.3); color:var(--green); font-size:11px; font-weight:800; letter-spacing:2px; padding:6px 14px; border-radius:100px; margin-bottom:20px; }
+.hero h1 { font-size:clamp(38px,9vw,78px); font-weight:900; line-height:.95; letter-spacing:-3px; margin-bottom:14px; }
+.hero h1 em { font-style:normal; color:var(--gold); }
+.hero-sub { font-size:clamp(15px,3vw,19px); color:var(--gray); max-width:460px; margin:0 auto 32px; line-height:1.55; }
+.hero-stats { display:flex; justify-content:center; gap:36px; flex-wrap:wrap; }
+.stat { text-align:center; }
+.stat-val { font-size:30px; font-weight:900; color:var(--gold); letter-spacing:-1px; }
+.stat-label { font-size:11px; color:var(--gray); margin-top:3px; letter-spacing:.5px; font-weight:600; }
+
+/* ─── LAYOUT ─────────────────────────────────────────────── */
+.wrap { max-width:920px; margin:0 auto; padding:44px 16px; }
+.sec-head { margin-bottom:24px; }
+.sec-title { font-size:22px; font-weight:900; letter-spacing:-.5px; }
+.sec-sub { font-size:13px; color:var(--gray); margin-top:4px; }
+.divider { height:1px; background:var(--border); margin:0 16px; }
+
+/* ─── PLAYER GRID ────────────────────────────────────────── */
+.player-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+.p-card { background:var(--card); border:1.5px solid var(--border); border-radius:18px; padding:20px; position:relative; overflow:hidden; transition:transform .18s,border-color .18s; }
+.p-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent,transparent); }
+.p-card:hover { transform:translateY(-3px); border-color:var(--dim); }
+.p-card.is-hot { border-color:rgba(255,149,0,.35); }
+.p-card.is-locked { opacity:.65; }
+
+.p-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+.p-rank { font-size:12px; font-weight:700; color:var(--gray); }
+.p-badges { display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; }
+.badge { font-size:9px; font-weight:800; letter-spacing:.5px; padding:3px 7px; border-radius:100px; }
+.b-hot  { background:rgba(255,149,0,.18); color:var(--orange); border:1px solid rgba(255,149,0,.3); }
+.b-lock { background:rgba(255,215,0,.1);  color:var(--gold);   border:1px solid rgba(255,215,0,.2); }
+.b-deal { background:rgba(0,229,160,.12); color:var(--green);  border:1px solid rgba(0,229,160,.25); }
+
+.p-name { font-size:23px; font-weight:900; letter-spacing:-.5px; }
+.p-meta { font-size:12px; color:var(--gray); margin-top:3px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.streak-dot { display:inline-block; width:7px; height:7px; border-radius:50%; }
+
+.p-price-row { display:flex; align-items:flex-end; gap:8px; margin:16px 0 4px; }
+.p-price { font-size:38px; font-weight:900; letter-spacing:-1.5px; line-height:1; }
+.p-price-label { font-size:12px; color:var(--gray); padding-bottom:5px; }
+.tier-gold { color:var(--gold); }
+.tier-purple { color:var(--purple); }
+.tier-blue { color:var(--blue); }
+.tier-gray { color:var(--gray); }
+
+.payouts-box { background:rgba(255,255,255,.04); border-radius:12px; padding:10px 12px; margin:12px 0; }
+.payouts-label { font-size:10px; color:var(--gray); font-weight:700; letter-spacing:.5px; margin-bottom:7px; }
+.payouts-row { display:flex; gap:6px; }
+.pout { flex:1; text-align:center; }
+.pout-val { font-size:14px; font-weight:800; }
+.pout-label { font-size:9px; color:var(--gray); margin-top:2px; letter-spacing:.3px; }
+.pout-champ { color:var(--gold); }
+
+.p-roi { font-size:12px; color:var(--green); font-weight:700; margin-bottom:14px; min-height:18px; }
+.p-roi.muted { color:var(--gray); }
+
+.btn-buy { width:100%; padding:14px; background:var(--green); color:#000; border:none; border-radius:12px; font-size:14px; font-weight:900; letter-spacing:.5px; cursor:pointer; transition:all .15s; text-transform:uppercase; }
+.btn-buy:hover:not(:disabled) { background:#00ffb0; transform:scale(1.02); }
+.btn-buy:active:not(:disabled) { transform:scale(.98); }
+.btn-buy:disabled { background:var(--dim); color:var(--gray); cursor:not-allowed; }
+
+/* ─── HOW IT WORKS ───────────────────────────────────────── */
+.how-wrap { background:rgba(255,255,255,.02); border:1px solid var(--border); border-radius:20px; }
+.steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; padding:28px 24px; }
+.step { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px 18px; text-align:center; }
+.step-circle { width:46px; height:46px; background:rgba(68,136,255,.14); border:1.5px solid rgba(68,136,255,.3); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:900; color:var(--blue); margin:0 auto 14px; }
+.step-title { font-size:15px; font-weight:800; margin-bottom:7px; }
+.step-body { font-size:13px; color:var(--gray); line-height:1.55; }
+
+/* ─── MATH SECTION ───────────────────────────────────────── */
+.math-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media(max-width:600px){ .math-grid { grid-template-columns:1fr; } }
+.m-card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px; }
+.m-card.full { grid-column:1/-1; }
+.m-head { font-size:12px; font-weight:800; letter-spacing:.8px; color:var(--gray); text-transform:uppercase; margin-bottom:16px; }
+.m-big { font-size:46px; font-weight:900; letter-spacing:-2px; line-height:1; }
+.m-sub { font-size:13px; color:var(--gray); margin-top:5px; }
+.m-note { font-size:12px; color:var(--gray); line-height:1.6; margin-top:12px; }
+
+.split-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.split-label { font-size:13px; font-weight:700; min-width:150px; }
+.split-bar-bg { flex:1; height:10px; background:var(--border); border-radius:100px; overflow:hidden; }
+.split-bar { height:100%; border-radius:100px; }
+.split-pct { font-size:13px; font-weight:800; min-width:36px; text-align:right; }
+.split-amt { font-size:12px; color:var(--gray); min-width:48px; text-align:right; }
+.split-note { font-size:11px; color:var(--gray); margin:-10px 0 14px 0; padding-left:4px; }
+
+.partner-box { background:rgba(255,215,0,.06); border:1px solid rgba(255,215,0,.2); border-radius:12px; padding:14px 16px; font-size:13px; color:var(--gray); line-height:1.7; margin-top:10px; }
+.partner-box strong { color:var(--gold); }
+
+.roi-tbl { width:100%; border-collapse:collapse; }
+.roi-tbl th { font-size:11px; color:var(--gray); font-weight:700; letter-spacing:.5px; text-align:left; padding:0 8px 12px; border-bottom:1px solid var(--border); }
+.roi-tbl td { padding:11px 8px; font-size:14px; border-bottom:1px solid rgba(255,255,255,.04); }
+.roi-tbl tr:last-child td { border-bottom:none; }
+.td-champ { color:var(--gold); font-weight:800; }
+.td-roi-great { color:var(--green); font-weight:800; }
+.td-roi-good  { color:var(--blue);  font-weight:800; }
+.td-roi-neg   { color:var(--red);   font-weight:800; }
+
+.scenario-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-top:14px; }
+.scenario { background:rgba(255,255,255,.04); border-radius:12px; padding:14px; text-align:center; }
+.sc-buy { font-size:11px; color:var(--gray); margin-bottom:4px; font-weight:600; }
+.sc-payout { font-size:22px; font-weight:900; color:var(--green); }
+.sc-roi { font-size:13px; color:var(--gray); margin-top:3px; }
+.sc-roi.great { color:var(--green); font-weight:700; }
+
+/* ─── PORTFOLIO ──────────────────────────────────────────── */
+.port-empty { text-align:center; padding:44px 20px; color:var(--gray); }
+.port-empty-icon { font-size:50px; margin-bottom:12px; }
+.port-grid { display:grid; gap:10px; }
+.port-item { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px 20px; display:flex; align-items:center; gap:14px; }
+.port-left { flex:1; }
+.port-name { font-size:16px; font-weight:800; }
+.port-detail { font-size:12px; color:var(--gray); margin-top:3px; }
+.port-right { text-align:right; }
+.port-val { font-size:20px; font-weight:900; }
+.port-val.up   { color:var(--green); }
+.port-val.even { color:var(--white); }
+.port-gain { font-size:12px; margin-top:3px; }
+.port-gain.up   { color:var(--green); }
+.port-gain.down { color:var(--red); }
+.port-gain.even { color:var(--gray); }
+.port-total { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; background:rgba(0,229,160,.06); border:1px solid rgba(0,229,160,.2); border-radius:14px; font-weight:800; }
+.clear-btn { background:transparent; border:1px solid var(--border); color:var(--gray); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:12px; }
+.clear-btn:hover { border-color:var(--dim); color:var(--white); }
+
+/* ─── MODAL ──────────────────────────────────────────────── */
+.overlay { position:fixed; inset:0; background:rgba(0,0,0,.88); z-index:500; display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity .2s; }
+.overlay.open { opacity:1; pointer-events:all; }
+.modal { background:var(--card2); border:1.5px solid var(--border); border-radius:24px 24px 0 0; padding:28px 22px 44px; width:100%; max-width:480px; transform:translateY(100%); transition:transform .32s cubic-bezier(.34,1.56,.64,1); }
+.overlay.open .modal { transform:translateY(0); }
+.modal-handle { width:40px; height:4px; background:var(--dim); border-radius:100px; margin:0 auto 22px; }
+.modal-title { font-size:21px; font-weight:900; margin-bottom:4px; }
+.modal-sub { font-size:14px; color:var(--gray); margin-bottom:22px; }
+
+.qty-row { display:flex; align-items:center; gap:14px; margin-bottom:18px; }
+.qty-label { font-size:14px; color:var(--gray); flex:1; }
+.qty-ctrl { display:flex; align-items:center; gap:12px; }
+.qty-btn { width:36px; height:36px; background:var(--border); border:none; border-radius:9px; color:var(--white); font-size:22px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; }
+.qty-btn:hover { background:var(--dim); }
+.qty-num { font-size:24px; font-weight:900; min-width:30px; text-align:center; }
+
+.modal-total-box { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:rgba(255,255,255,.04); border-radius:13px; margin-bottom:16px; }
+.modal-total-label { font-size:14px; color:var(--gray); }
+.modal-total-val { font-size:28px; font-weight:900; color:var(--gold); }
+
+.modal-preview { background:rgba(0,229,160,.07); border:1px solid rgba(0,229,160,.22); border-radius:12px; padding:14px; margin-bottom:18px; font-size:13px; color:var(--green); line-height:1.6; }
+.modal-preview strong { color:var(--white); }
+
+.btn-stripe { display:block; width:100%; padding:16px; background:var(--green); color:#000; border:none; border-radius:13px; font-size:15px; font-weight:900; cursor:pointer; text-align:center; text-decoration:none; letter-spacing:.5px; margin-bottom:11px; }
+.btn-stripe:hover { background:#00ffb0; }
+.modal-fine { font-size:11px; color:var(--gray); text-align:center; line-height:1.5; }
+
+/* ─── FOOTER ─────────────────────────────────────────────── */
+footer { text-align:center; padding:40px 20px; border-top:1px solid var(--border); color:var(--gray); font-size:13px; }
+footer .logo { font-size:24px; margin-bottom:8px; }
+footer .name { font-weight:800; color:var(--white); margin-bottom:4px; font-size:15px; }
+
+/* ─── UTILITY ────────────────────────────────────────────── */
+@media(max-width:480px){
+  .hero { padding:40px 14px 32px; }
+  .player-grid { grid-template-columns:1fr; }
+  .p-price { font-size:32px; }
+  .m-big { font-size:36px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════ TICKER ════════ -->
+<div class="ticker-wrap">
+  <div class="ticker-label"><div class="live-dot"></div>LIVE</div>
+  <div class="ticker-track"><div class="ticker-scroll" id="ticker"></div></div>
+</div>
+
+<!-- ════════ HERO ════════ -->
+<div class="hero">
+  <div class="hero-eyebrow"><div class="live-dot"></div>SEASON IN PROGRESS</div>
+  <h1>OWN THE<br><em>ACTION.</em></h1>
+  <p class="hero-sub">Buy shares in pool players. Watch your value rise as they climb the ladder. Cash out big when they win the championship.</p>
+  <div class="hero-stats">
+    <div class="stat"><div class="stat-val" id="stat-shares">–</div><div class="stat-label">SHARES SOLD</div></div>
+    <div class="stat"><div class="stat-val" id="stat-vol">–</div><div class="stat-label">TOTAL INVESTED</div></div>
+    <div class="stat"><div class="stat-val">500%</div><div class="stat-label">MAX ROI</div></div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ PLAYER BOARD ════════ -->
+<div class="wrap">
+  <div class="sec-head">
+    <div class="sec-title">📊 Live Share Prices</div>
+    <div class="sec-sub">Price locks in at purchase · Rises with standings · Every investor gets paid at playoffs</div>
+  </div>
+  <div class="player-grid" id="playerGrid"></div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ HOW IT WORKS ════════ -->
+<div class="wrap" style="padding-bottom:8px">
+  <div class="sec-head"><div class="sec-title">⚡ How It Works</div><div class="sec-sub">Three steps. No experience needed.</div></div>
+</div>
+<div style="max-width:920px;margin:0 auto;padding:0 16px 44px">
+  <div class="how-wrap">
+    <div class="steps">
+      <div class="step">
+        <div class="step-circle">1</div>
+        <div class="step-title">Pick a Player</div>
+        <div class="step-body">Browse the leaderboard. Find someone you believe in. Lower-ranked players cost less — and pay out the most ROI if they shock everyone and win.</div>
+      </div>
+      <div class="step">
+        <div class="step-circle">2</div>
+        <div class="step-title">Buy Shares via Stripe</div>
+        <div class="step-body">Tap BUY, select how many shares, and pay securely through Stripe. You'll get an email receipt. Your price is permanently locked in — it never goes up on you.</div>
+      </div>
+      <div class="step">
+        <div class="step-circle">3</div>
+        <div class="step-title">Collect at Playoffs</div>
+        <div class="step-body">When playoffs hit, your payout depends on how far your player goes. Champion backers collect $150/share. Even if they lose in quarterfinals, you still get $15/share back.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ THE MATH ════════ -->
+<div class="wrap">
+  <div class="sec-head">
+    <div class="sec-title">💰 The Math — Full Transparency</div>
+    <div class="sec-sub">Every dollar accounted for. Here's exactly how money flows.</div>
+  </div>
+  <div class="math-grid" id="mathGrid"></div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ════════ PORTFOLIO ════════ -->
+<div class="wrap">
+  <div class="sec-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+    <div>
+      <div class="sec-title">🎯 My Portfolio</div>
+      <div class="sec-sub">Tracked locally on this device · Not a substitute for your Stripe receipt</div>
+    </div>
+    <button class="clear-btn" onclick="clearPortfolio()">Clear All</button>
+  </div>
+  <div id="portfolio"></div>
+</div>
+
+<!-- ════════ OPERATOR MODEL ════════ -->
+<div class="divider"></div>
+<div style="max-width:920px;margin:0 auto;padding:32px 16px 0">
+  <button id="opToggle" onclick="toggleOp()"
+    style="display:flex;align-items:center;gap:8px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:var(--gold);font-size:13px;font-weight:800;padding:10px 18px;border-radius:100px;cursor:pointer;letter-spacing:.5px;margin-bottom:20px;">
+    🔐 OPERATOR P&amp;L MODEL <span id="opArrow">▼</span>
+  </button>
+  <div id="opPanel" style="display:none">
+    <style>
+      .op-met-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.25rem}
+      .op-met{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+      .op-met-label{font-size:11px;color:var(--gray);margin-bottom:4px}
+      .op-met-val{font-size:20px;font-weight:900}
+      .op-met-note{font-size:10px;color:var(--gray);margin-top:2px}
+      .op-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,180px);gap:14px;margin-bottom:1.25rem}
+      @media(max-width:560px){.op-two{grid-template-columns:1fr}}
+      .op-prow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px}
+      .op-prow:last-child{border-bottom:none}
+      .op-plabel{color:var(--gray)}
+      .op-pval{font-weight:700}
+      .op-partner-box{background:rgba(255,215,0,.07);border:1px solid rgba(255,215,0,.2);border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px}
+      .op-partner-num{font-size:42px;font-weight:900;line-height:1;color:var(--gold)}
+      .op-slider-block{margin-bottom:1rem}
+      .op-slider-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+      .op-compare{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1.25rem}
+      .op-col{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+      .op-col-title{font-size:10px;font-weight:800;color:var(--gray);letter-spacing:.5px;margin-bottom:8px}
+      .op-prize-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+    </style>
+
+    <!-- Prize compare -->
+    <div style="font-size:12px;color:var(--gray);font-weight:700;letter-spacing:.5px;margin-bottom:10px">PRIZE STRUCTURE CHANGE</div>
+    <div class="op-compare">
+      <div class="op-col">
+        <div class="op-col-title">OLD — PER SEASON</div>
+        <div class="op-prize-row"><span>1st</span><span style="text-decoration:line-through;color:var(--gray)">$1,000</span></div>
+        <div class="op-prize-row"><span>2nd</span><span style="text-decoration:line-through;color:var(--gray)">$500</span></div>
+        <div class="op-prize-row"><span>3rd</span><span style="text-decoration:line-through;color:var(--gray)">$250</span></div>
+        <div class="op-prize-row"><span>MVP</span><span style="color:var(--gray)">$150</span></div>
+        <div class="op-prize-row"><span>6-Ball</span><span style="text-decoration:line-through;color:var(--gray)">$350</span></div>
+        <div class="op-prize-row" style="border-top:0.5px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700"><span>Total</span><span style="color:var(--red)">$2,250</span></div>
+      </div>
+      <div class="op-col">
+        <div class="op-col-title">NEW — PER SEASON</div>
+        <div class="op-prize-row"><span>1st</span><span style="color:var(--green);font-weight:700">$850</span></div>
+        <div class="op-prize-row"><span>2nd</span><span style="color:var(--green);font-weight:700">$400</span></div>
+        <div class="op-prize-row"><span>3rd</span><span style="color:var(--green);font-weight:700">$200</span></div>
+        <div class="op-prize-row"><span>MVP</span><span style="color:var(--white)">$150</span></div>
+        <div class="op-prize-row"><span>6-Ball</span><span style="color:var(--green);font-weight:700">removed</span></div>
+        <div class="op-prize-row" style="border-top:0.5px solid var(--border);margin-top:6px;padding-top:6px;font-weight:700"><span>Total</span><span style="color:var(--green)">$1,600</span></div>
+      </div>
+    </div>
+
+    <!-- Metric cards -->
+    <div class="op-met-row">
+      <div class="op-met"><div class="op-met-label">Saved / season</div><div class="op-met-val" style="color:var(--green)">$650</div><div class="op-met-note">×2 = $1,300 total</div></div>
+      <div class="op-met"><div class="op-met-label">Op fee</div><div class="op-met-val">17%</div><div class="op-met-note">was 15%</div></div>
+      <div class="op-met"><div class="op-met-label">Bar share cut</div><div class="op-met-val">1.5%</div><div class="op-met-note">+ 3% base</div></div>
+      <div class="op-met"><div class="op-met-label">Net to partners</div><div class="op-met-val" style="color:var(--gold)">15.5%</div><div class="op-met-note">per share $</div></div>
+    </div>
+
+    <!-- P&L + per partner -->
+    <div class="op-two">
+      <div>
+        <div style="font-size:11px;color:var(--gray);font-weight:700;letter-spacing:.5px;margin-bottom:10px">FULL RUN P&amp;L</div>
+        <div class="op-prow"><span class="op-plabel">Base revenue</span><span class="op-pval" id="op-baseRevDisp">$7,000</span></div>
+        <div class="op-prow"><span class="op-plabel">− Bar cut (3% base)</span><span class="op-pval" style="color:var(--red)" id="op-barBaseDisp">−$210</span></div>
+        <div class="op-prow"><span class="op-plabel">− Season prizes ×2</span><span class="op-pval" style="color:var(--red)">−$3,200</span></div>
+        <div class="op-prow"><span class="op-plabel">− Playoff prizes</span><span class="op-pval" style="color:var(--red)">−$1,175</span></div>
+        <div class="op-prow" style="font-weight:700"><span style="color:var(--white)">Base profit</span><span class="op-pval" id="op-baseProfitDisp">$2,415</span></div>
+        <div style="height:0.5px;background:var(--border);margin:8px 0"></div>
+        <div class="op-prow"><span class="op-plabel">+ Op fee 17%</span><span class="op-pval" style="color:var(--green)" id="op-opFeeDisp">+$1,785</span></div>
+        <div class="op-prow"><span class="op-plabel">− Bar share 1.5%</span><span class="op-pval" style="color:var(--red)" id="op-barShareDisp">−$158</span></div>
+        <div class="op-prow" style="font-weight:700"><span style="color:var(--white)">Net profit</span><span class="op-pval" style="color:var(--green)" id="op-netDisp">$4,042</span></div>
+      </div>
+      <div class="op-partner-box">
+        <div style="font-size:11px;color:var(--gray)">per partner</div>
+        <div class="op-partner-num" id="op-partnerNum">$1,011</div>
+        <div style="font-size:11px;color:var(--gray);line-height:1.5" id="op-partnerBreak">$604 base<br>+$407 shares</div>
+        <div style="font-size:10px;padding:3px 10px;border-radius:100px;margin-top:4px" id="op-floorBadge"
+             style="background:rgba(0,229,160,.12);color:var(--green)">above $1k floor</div>
+      </div>
+    </div>
+
+    <!-- Sliders -->
+    <div class="op-slider-block">
+      <div class="op-slider-hdr">
+        <span style="font-size:12px;color:var(--gray)">Share volume</span>
+        <span style="font-size:15px;font-weight:900;color:var(--white)" id="op-shareValDisp">$10,500</span>
+      </div>
+      <input type="range" min="0" max="20000" value="10500" step="100" id="op-shareSlider" style="width:100%">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--gray);margin-top:4px">
+        <span>$0</span><span>$5k</span><span style="color:var(--orange);font-weight:700">$10.5k target</span><span>$15k</span><span>$20k</span>
+      </div>
+    </div>
+    <div class="op-slider-block">
+      <div class="op-slider-hdr">
+        <span style="font-size:12px;color:var(--gray)">Base revenue</span>
+        <span style="font-size:15px;font-weight:900;color:var(--white)" id="op-baseValDisp">$7,000</span>
+      </div>
+      <input type="range" min="3000" max="15000" value="7000" step="100" id="op-baseSlider" style="width:100%">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--gray);margin-top:4px">
+        <span>$3k</span><span>$6k</span><span>$9k</span><span>$12k</span><span>$15k</span>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div style="font-size:11px;color:var(--gray);font-weight:700;letter-spacing:.5px;margin:10px 0 8px">PARTNER EARNINGS BY SHARE VOLUME</div>
+    <div style="position:relative;height:160px;margin-bottom:28px">
+      <canvas id="op-chart"></canvas>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <script>
+    (function(){
+      const OP_FEE=0.17, BAR_SHARE=0.015, BAR_BASE=0.03;
+      const SEASON_PRIZES=3200, PLAYOFF_PRIZES=1175, PARTNERS=4;
+      let opShareVol=10500, opBaseRev=7000;
+
+      function opCalcBase(base){ return base - Math.round(base*BAR_BASE) - SEASON_PRIZES - PLAYOFF_PRIZES; }
+      function opCalcNet(base,sv){ return opCalcBase(base) + Math.round(sv*OP_FEE) - Math.round(sv*BAR_SHARE); }
+      function opPP(base,sv){ return Math.round(opCalcNet(base,sv)/PARTNERS); }
+      function opFmt(n){ return '$'+Math.abs(Math.round(n)).toLocaleString(); }
+
+      function opUpdate(){
+        const bp=opCalcBase(opBaseRev);
+        const opFee=Math.round(opShareVol*OP_FEE);
+        const barShare=Math.round(opShareVol*BAR_SHARE);
+        const net=bp+opFee-barShare;
+        const pp=Math.round(net/PARTNERS);
+        const bpp=Math.round(bp/PARTNERS);
+        document.getElementById('op-baseRevDisp').textContent=opFmt(opBaseRev);
+        document.getElementById('op-barBaseDisp').textContent='−'+opFmt(opBaseRev*BAR_BASE);
+        document.getElementById('op-baseProfitDisp').textContent=opFmt(bp);
+        document.getElementById('op-opFeeDisp').textContent='+'+opFmt(opFee);
+        document.getElementById('op-barShareDisp').textContent='−'+opFmt(barShare);
+        document.getElementById('op-netDisp').textContent=opFmt(net);
+        document.getElementById('op-partnerNum').textContent=opFmt(pp);
+        document.getElementById('op-partnerBreak').innerHTML=opFmt(bpp)+' base<br>+'+(opFmt(pp-bpp))+' shares';
+        const badge=document.getElementById('op-floorBadge');
+        badge.textContent=pp>=1000?'above $1k floor':'below $1k floor';
+        badge.style.background=pp>=1000?'rgba(0,229,160,.14)':'rgba(255,59,92,.14)';
+        badge.style.color=pp>=1000?'var(--green)':'var(--red)';
+        document.getElementById('op-shareValDisp').textContent=opFmt(opShareVol);
+        document.getElementById('op-baseValDisp').textContent=opFmt(opBaseRev);
+        opChart.data.datasets[0].data=[0,5000,10500,15000,20000].map(v=>opPP(opBaseRev,v));
+        opChart.data.datasets[0].backgroundColor=[0,5000,10500,15000,20000].map(v=>opPP(opBaseRev,v)>=1000?'rgba(0,229,160,.75)':'rgba(68,136,255,.75)');
+        opChart.update('none');
+      }
+
+      const opChart=new Chart(document.getElementById('op-chart'),{
+        type:'bar',
+        data:{
+          labels:['$0','$5k','$10.5k','$15k','$20k'],
+          datasets:[{data:[0,0,0,0,0],borderRadius:4,borderSkipped:false}]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+Math.round(c.raw).toLocaleString()+'/partner'}}},
+          scales:{
+            x:{ticks:{color:'rgba(96,96,160,.9)',font:{size:11}},grid:{display:false},border:{display:false}},
+            y:{ticks:{color:'rgba(96,96,160,.9)',font:{size:11},callback:v=>'$'+Math.round(v/1000)+'k'},grid:{color:'rgba(26,26,53,.8)'},border:{display:false}}
+          }
+        }
+      });
+
+      document.getElementById('op-shareSlider').addEventListener('input',e=>{opShareVol=+e.target.value;opUpdate();});
+      document.getElementById('op-baseSlider').addEventListener('input',e=>{opBaseRev=+e.target.value;opUpdate();});
+      opUpdate();
+    })();
+    </script>
+  </div>
+</div>
+
+<!-- ════════ FOOTER ════════ -->
+<footer>
+  <div class="logo">🎱</div>
+  <div class="name">Pool Market Ladder</div>
+  <div>Secure payments by Stripe · Shares tracked on device</div>
+  <div style="margin-top:8px;font-size:11px">Operator: keep your Stripe receipt as proof of purchase</div>
+</footer>
+
+<!-- ════════ BUY MODAL ════════ -->
+<div class="overlay" id="overlay" onclick="maybeClose(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="mTitle"></div>
+    <div class="modal-sub" id="mSub"></div>
+    <div class="qty-row">
+      <div class="qty-label">Number of shares</div>
+      <div class="qty-ctrl">
+        <button class="qty-btn" onclick="adjQty(-1)">−</button>
+        <div class="qty-num" id="qtyNum">1</div>
+        <button class="qty-btn" onclick="adjQty(1)">+</button>
+      </div>
+    </div>
+    <div class="modal-total-box">
+      <div class="modal-total-label">Total charge</div>
+      <div class="modal-total-val" id="mTotal">$0</div>
+    </div>
+    <div class="modal-preview" id="mPreview"></div>
+    <a href="#" id="checkoutLink" class="btn-stripe" target="_blank" rel="noopener">💳 Pay with Stripe →</a>
+    <div class="modal-fine">Secure checkout by Stripe · Price locked at purchase · Receipts via email</div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     SCRIPT — Edit CONFIG section before going live
+     ════════════════════════════════════════════════════════ -->
+<script>
+// ╔═══════════════════════════════════════════════════════╗
+// ║  OPERATOR CONFIG — EDIT BEFORE GOING LIVE            ║
+// ╚═══════════════════════════════════════════════════════╝
+const CONFIG = {
+
+  // ── STRIPE PAYMENT LINKS ──────────────────────────────
+  // SHARES — one link per tier (investment in a player's playoff performance)
+  stripe: {
+    25:  "https://buy.stripe.com/test_bJe8wOfnS2d80qlc8R9ws00",  // $25 — Unranked share
+    35:  "https://buy.stripe.com/test_aFa14m8Zu0508WRb4N9ws01",  // $35 — Top 5-8 share
+    75:  "https://buy.stripe.com/test_7sY4gy7Vqg3Y7SN1ud9ws02",  // $75 — Top 3-4 share
+    150: "https://buy.stripe.com/test_cNi5kC8Zu0507SN4Gp9ws03",  // $150 — Top 2 share
+  },
+
+  // LEAGUE FEES — separate from shares, collected from players only
+  fees: {
+    registration: "https://buy.stripe.com/test_bJe9AS4Je3hcehbegZ9ws04", // $150 one-time
+    weeklyDues:   "https://buy.stripe.com/test_00w8wOgrWbNI3Cxgp79ws05", // $25/week
+  },
+
+  // ── OPERATOR PIN (for manual unlock on locked players) ──
+  // Change this to any 4-digit number you want
+  operatorPin: "1234",
+
+  // ── PLAYOFF PAYOUTS (per share, regardless of purchase price) ──
+  payouts: { champ:150, finalist:80, semi:40, qf:15 },
+
+  // ── MONEY SPLIT PERCENTAGES (of share volume) ────────
+  split: {
+    opFee:    0.17,   // 17% → operator fee (split equally 4 ways among partners)
+    bar:      0.015,  //1.5% → bar owner's share of share volume (bar also gets 3% of base revenue separately)
+    prizes:   0.35,   // 35% → player prize pool (season + playoff prizes)
+    investor: 0.465,  //46.5%→ investor payouts at playoffs
+  },
+
+  // ── PLAYER LIST — UPDATE EACH WEEK ───────────────────
+  // rank:      current standing (1 = top)
+  // locked:    true = manually locked, no new shares
+  // hot:       true = on a win streak
+  // streak:    last 5 results (W or L, space-separated)
+  // duesPaid:  true = dues current | false = dues owed
+  // duesDue:   "YYYY-MM-DD" date dues were expected (set when they play unpaid)
+  //            After 2 days past this date with duesPaid:false → auto-locks
+  players: [
+    { name:"Marcus P.",  rank:1,  bar:"Bar One",   locked:false, hot:true,  streak:"W W W W W", duesPaid:true,  duesDue:null },
+    { name:"Jake T.",    rank:2,  bar:"Bar Two",   locked:false, hot:true,  streak:"W W W L W", duesPaid:true,  duesDue:null },
+    { name:"Darius M.",  rank:3,  bar:"Bar Three", locked:false, hot:false, streak:"W L W W L", duesPaid:true,  duesDue:null },
+    { name:"Caleb R.",   rank:4,  bar:"Bar One",   locked:false, hot:false, streak:"L W W L W", duesPaid:true,  duesDue:null },
+    { name:"Derek S.",   rank:5,  bar:"Bar Four",  locked:false, hot:true,  streak:"W W L W W", duesPaid:true,  duesDue:null },
+    { name:"Tony B.",    rank:6,  bar:"Bar Two",   locked:false, hot:false, streak:"L L W W W", duesPaid:true,  duesDue:null },
+    { name:"Ray W.",     rank:7,  bar:"Bar Three", locked:false, hot:false, streak:"W L L W L", duesPaid:true,  duesDue:null },
+    { name:"Chris L.",   rank:8,  bar:"Bar Four",  locked:false, hot:false, streak:"L W L L W", duesPaid:true,  duesDue:null },
+    { name:"Mike H.",    rank:9,  bar:"Bar One",   locked:false, hot:false, streak:"W L L L L", duesPaid:true,  duesDue:null },
+    { name:"Sam K.",     rank:10, bar:"Bar Two",   locked:false, hot:false, streak:"L L W L L", duesPaid:true,  duesDue:null },
+    { name:"Leo G.",     rank:11, bar:"Bar Three", locked:false, hot:false, streak:"L L L W L", duesPaid:true,  duesDue:null },
+    { name:"Nate F.",    rank:12, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L W", duesPaid:true,  duesDue:null },
+    { name:"Omar J.",    rank:13, bar:"Bar One",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
+    { name:"Paul D.",    rank:14, bar:"Bar Two",   locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
+    { name:"Quan A.",    rank:15, bar:"Bar Three", locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
+    { name:"Ron V.",     rank:16, bar:"Bar Four",  locked:false, hot:false, streak:"L L L L L", duesPaid:true,  duesDue:null },
+  ],
+};
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  HELPERS                                              ║
+// ╚═══════════════════════════════════════════════════════╝
+const $  = (id) => document.getElementById(id);
+const $$ = (n)  => n == null ? "$0" : "$" + Math.abs(n).toLocaleString();
+
+function sharePrice(rank) {
+  if (rank <= 2) return 150;
+  if (rank <= 4) return 75;
+  if (rank <= 8) return 35;
+  return 25;
+}
+
+function rankLabel(rank) {
+  if (rank <= 2) return "🥇 Top 2";
+  if (rank <= 4) return "🥈 Top 3–4";
+  if (rank <= 8) return "🥉 Top 5–8";
+  return `#${rank}`;
+}
+
+function accentColor(rank) {
+  if (rank <= 2) return "#ffd700";
+  if (rank <= 4) return "#c470f5";
+  if (rank <= 8) return "#4488ff";
+  return "#2a2a4a";
+}
+
+function tierClass(rank) {
+  if (rank <= 2) return "tier-gold";
+  if (rank <= 4) return "tier-purple";
+  if (rank <= 8) return "tier-blue";
+  return "tier-gray";
+}
+
+function roi(paid, out) { return Math.round((out - paid) / paid * 100); }
+
+// Returns true if player is auto-locked due to overdue dues (2+ days unpaid)
+function isDuesLocked(p) {
+  if (p.duesPaid || !p.duesDue) return false;
+  const due  = new Date(p.duesDue);
+  const now  = new Date();
+  const days = (now - due) / (1000 * 60 * 60 * 24);
+  return days >= 2;
+}
+
+// Check localStorage for manual operator unlocks this session
+function isManualUnlocked(name) {
+  try { return JSON.parse(localStorage.getItem("pml_unlocks") || "[]").includes(name); }
+  catch { return false; }
+}
+function setManualUnlock(name) {
+  try {
+    const list = JSON.parse(localStorage.getItem("pml_unlocks") || "[]");
+    if (!list.includes(name)) list.push(name);
+    localStorage.setItem("pml_unlocks", JSON.stringify(list));
+  } catch {}
+}
+
+// Returns effective lock state (manual lock OR dues overdue, unless operator-unlocked)
+function isLocked(p) {
+  if (p.locked) return "manual";
+  if (isDuesLocked(p) && !isManualUnlocked(p.name)) return "dues";
+  return false;
+}
+
+// Operator unlock — prompts for PIN, then unlocks dues hold for this player
+function operatorUnlock(name) {
+  const pin = prompt(`Enter operator PIN to unlock ${name}:`);
+  if (pin === CONFIG.operatorPin) {
+    setManualUnlock(name);
+    buildGrid();
+    alert(`✅ ${name} unlocked. Shares are open again.`);
+  } else if (pin !== null) {
+    alert("❌ Wrong PIN.");
+  }
+}
+
+function stripeUrl(price, qty) {
+  const base = CONFIG.stripe[price];
+  if (!base || base.includes("REPLACE")) return null;
+  return `${base}?quantity=${qty}`;
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  TICKER                                               ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildTicker() {
+  const items = CONFIG.players.map(p => {
+    const price = sharePrice(p.rank);
+    const badge = p.locked
+      ? `<span class="t-badge-lock">🔒</span>`
+      : p.hot
+      ? `<span class="t-badge-hot">🔥</span>`
+      : "";
+    return `<span class="t-item"><span class="t-name">${p.name}</span><span class="t-price">${$$(price)}</span>${badge}</span><span class="t-sep"> | </span>`;
+  }).join("");
+  $("ticker").innerHTML = items + items; // doubled for seamless loop
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  HERO STATS                                           ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildStats() {
+  const port = getPortfolio();
+  const shares = port.reduce((s, x) => s + x.qty, 0);
+  const vol    = port.reduce((s, x) => s + x.qty * x.pricePaid, 0);
+  $("stat-shares").textContent = shares || "0";
+  $("stat-vol").textContent    = vol ? "$" + vol.toLocaleString() : "$0";
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  PLAYER GRID                                          ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildGrid() {
+  $("playerGrid").innerHTML = CONFIG.players.map(p => {
+    const price      = sharePrice(p.rank);
+    const lockState  = isLocked(p);           // false | "manual" | "dues"
+    const locked     = !!lockState;
+    const accent     = accentColor(p.rank);
+    const champRoi   = roi(price, CONFIG.payouts.champ);
+    const isLowEntry = p.rank > 8;
+
+    const streakHTML = (p.streak || "").split(" ").map(r =>
+      `<span class="streak-dot" style="background:${r==="W"?"var(--green)":"var(--dim)"}"></span>`
+    ).join("");
+
+    const duesBtn = lockState === "dues" ? `
+      <a href="${CONFIG.fees.weeklyDues}" target="_blank" rel="noopener"
+         style="display:block;width:100%;padding:12px;background:rgba(255,59,92,.15);border:1px solid rgba(255,59,92,.4);color:var(--red);border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;text-align:center;text-decoration:none;margin-bottom:8px;">
+        ⚠️ PAY $25 DUES NOW TO UNLOCK →
+      </a>
+      <button onclick="operatorUnlock('${p.name}')"
+        style="width:100%;padding:10px;background:transparent;border:1px solid var(--border);color:var(--gray);border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;">
+        🔐 OPERATOR UNLOCK
+      </button>` : "";
+
+    return `
+<div class="p-card ${p.hot && !locked ? "is-hot" : ""} ${locked ? "is-locked" : ""}"
+     style="--accent:${accent}${lockState==="dues"?";border-color:rgba(255,59,92,.3)":""}">
+  <div class="p-top">
+    <div class="p-rank">${rankLabel(p.rank)}</div>
+    <div class="p-badges">
+      ${p.hot && !locked ? '<span class="badge b-hot">🔥 HOT</span>' : ""}
+      ${lockState==="dues"   ? '<span class="badge" style="background:rgba(255,59,92,.15);color:var(--red);border:1px solid rgba(255,59,92,.3)">⚠️ DUES OWED</span>' : ""}
+      ${lockState==="manual" ? '<span class="badge b-lock">🔒 LOCKED</span>' : ""}
+      ${isLowEntry && !locked ? '<span class="badge b-deal">LOW ENTRY</span>' : ""}
+    </div>
+  </div>
+
+  <div class="p-name">${p.name}</div>
+  <div class="p-meta">
+    <span>${p.bar}</span>
+    <span style="display:flex;gap:3px;align-items:center">${streakHTML}</span>
+  </div>
+
+  <div class="p-price-row">
+    <div class="p-price ${tierClass(p.rank)}">${$$(price)}</div>
+    <div class="p-price-label">per share</div>
+  </div>
+
+  <div class="payouts-box">
+    <div class="payouts-label">PAYOUT PER SHARE IF THEY REACH…</div>
+    <div class="payouts-row">
+      <div class="pout"><div class="pout-val pout-champ">${$$(CONFIG.payouts.champ)}</div><div class="pout-label">WIN 🏆</div></div>
+      <div class="pout"><div class="pout-val">${$$(CONFIG.payouts.finalist)}</div><div class="pout-label">FINAL</div></div>
+      <div class="pout"><div class="pout-val">${$$(CONFIG.payouts.semi)}</div><div class="pout-label">SEMI</div></div>
+      <div class="pout"><div class="pout-val">${$$(CONFIG.payouts.qf)}</div><div class="pout-label">QF</div></div>
+    </div>
+  </div>
+
+  ${lockState==="dues"
+    ? `<div class="p-roi muted" style="color:var(--red)">⚠️ Shares paused — dues overdue</div>`
+    : lockState==="manual"
+    ? `<div class="p-roi muted">🔒 No new shares available</div>`
+    : `<div class="p-roi">🚀 Buy at ${$$(price)} → collect up to ${$$(CONFIG.payouts.champ)} (+${champRoi}% ROI)</div>`
+  }
+
+  ${duesBtn}
+
+  ${lockState !== "dues" ? `
+  <button class="btn-buy" ${lockState==="manual" ? "disabled" : ""}
+    onclick="openModal('${p.name}',${price},${p.rank})">
+    ${lockState==="manual" ? "🔒 LOCKED" : "⚡ BUY SHARES"}
+  </button>` : ""}
+</div>`;
+  }).join("");
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  MATH SECTION                                         ║
+// ╚═══════════════════════════════════════════════════════╝
+function buildMath() {
+  const S = CONFIG.split;
+  const EX = 100; // example: per $100 sold
+
+  const splits = [
+    { label:"You (investor) get back", pct:S.investor, color:"var(--green)",  note:"Paid out at playoffs based on player finish" },
+    { label:"Player prize pool",        pct:S.prizes,   color:"var(--blue)",   note:"Season prizes + playoff prize money for players" },
+    { label:"Operator fee (÷ 4 ways)",  pct:S.opFee,    color:"var(--gold)",   note:"17% split equally among the 4 partners — up from 15%" },
+    { label:"Bar owner (shares)",       pct:S.bar,      color:"var(--purple)", note:"1.5% of share volume + 3% of base revenue separately" },
+  ];
+
+  // ROI rows
+  const rois = [
+    [25,  "Champion 🏆",  150, roi(25,150)],
+    [25,  "Finalist",     80,  roi(25,80)],
+    [25,  "Semifinal",    40,  roi(25,40)],
+    [25,  "Quarterfinal", 15,  roi(25,15)],
+    [35,  "Champion 🏆",  150, roi(35,150)],
+    [35,  "Finalist",     80,  roi(35,80)],
+    [35,  "Quarterfinal", 15,  roi(35,15)],
+    [75,  "Champion 🏆",  150, roi(75,150)],
+    [75,  "Quarterfinal", 15,  roi(75,15)],
+    [150, "Champion 🏆",  150, roi(150,150)],
+  ];
+
+  $("mathGrid").innerHTML = `
+
+<!-- ── Split breakdown ─────────────────────────── -->
+<div class="m-card full">
+  <div class="m-head">For every $100 of shares sold — here's where it goes (17% op · 1.5% bar · 35% prizes · 46.5% investors)</div>
+  <div>
+    ${splits.map(s => `
+      <div class="split-row">
+        <div class="split-label" style="color:${s.color}">${s.label}</div>
+        <div class="split-bar-bg"><div class="split-bar" style="width:${s.pct*100}%;background:${s.color}"></div></div>
+        <div class="split-pct" style="color:${s.color}">${Math.round(s.pct*100)}%</div>
+        <div class="split-amt">${$$(Math.round(s.pct*EX))}</div>
+      </div>
+      <div class="split-note">${s.note}</div>
+    `).join("")}
+  </div>
+  <div class="partner-box">
+    <strong>4-Partner Breakdown:</strong> The 17% operator fee is pooled and split equally 4 ways among partners.<br>
+    Every <strong>$100</strong> in shares sold → <strong>$4.25 per partner</strong> from the fee.<br>
+    Sell <strong>$1,000</strong> → <strong>$42.50 per partner</strong> · Sell <strong>$5,000</strong> → <strong>$212.50 per partner</strong> · Sell <strong>$10,000</strong> → <strong>$425 per partner</strong>
+  </div>
+</div>
+
+<!-- ── Partner math example ─────────────────────── -->
+<div class="m-card">
+  <div class="m-head">If you sell 40 shares at $35</div>
+  <div class="m-big" style="color:var(--gold)">$59.50</div>
+  <div class="m-sub">per partner from operator fee</div>
+  <div class="m-note">
+    40 × $35 = <strong style="color:var(--white)">$1,400 total</strong><br>
+    × 17% op fee = $238.00<br>
+    ÷ 4 partners = <strong style="color:var(--gold)">$59.50 each</strong><br><br>
+    Season prizes + base revenue handled separately from share volume.
+  </div>
+</div>
+
+<!-- ── Bar owner math ────────────────────────────── -->
+<div class="m-card">
+  <div class="m-head">Bar owner earns per $100 sold</div>
+  <div class="m-big" style="color:var(--purple)">$1.50</div>
+  <div class="m-sub">from share volume</div>
+  <div class="m-note">
+    1.5% of total share volume.<br>
+    Plus 3% cut of base league fees<br>
+    (registrations + weekly dues).<br><br>
+    <strong style="color:var(--white)">Zero cost, zero risk — they just host.</strong>
+  </div>
+</div>
+
+<!-- ── ROI table ─────────────────────────────────── -->
+<div class="m-card full">
+  <div class="m-head">Investor ROI at every outcome</div>
+  <table class="roi-tbl">
+    <thead>
+      <tr>
+        <th>BUY PRICE</th>
+        <th>OUTCOME</th>
+        <th>PAYOUT / SHARE</th>
+        <th>YOUR ROI</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rois.map(([price, outcome, payout, r]) => `
+        <tr>
+          <td><strong>${$$(price)}</strong></td>
+          <td class="${outcome.includes("Champion") ? "td-champ" : ""}">${outcome}</td>
+          <td>${$$(payout)}</td>
+          <td class="${r >= 200 ? "td-roi-great" : r >= 0 ? "td-roi-good" : "td-roi-neg"}">${r >= 0 ? "+" : ""}${r}%</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── "If they win" snapshot ────────────────────── -->
+<div class="m-card full">
+  <div class="m-head">If your player wins the championship — what $100 invested returns</div>
+  <div class="scenario-grid">
+    ${[
+      { tier:"$25 share (unranked)", buy:25, payout:150 },
+      { tier:"$35 share (top 5–8)",  buy:35, payout:150 },
+      { tier:"$75 share (top 3–4)",  buy:75, payout:150 },
+    ].map(s => `
+      <div class="scenario">
+        <div class="sc-buy">${s.tier}</div>
+        <div class="sc-payout">${$$(s.payout)}</div>
+        <div class="sc-roi great">+${roi(s.buy,s.payout)}% return</div>
+      </div>
+    `).join("")}
+  </div>
+  <div style="font-size:12px;color:var(--gray);margin-top:14px;text-align:center">
+    Floor guarantee: every investor receives at least $15/share if their player reaches quarterfinals
+  </div>
+</div>
+`;
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  PORTFOLIO  (localStorage)                            ║
+// ╚═══════════════════════════════════════════════════════╝
+const PORT_KEY = "pml_v2_portfolio";
+
+function getPortfolio() {
+  try { return JSON.parse(localStorage.getItem(PORT_KEY)) || []; }
+  catch { return []; }
+}
+function savePortfolio(d) { localStorage.setItem(PORT_KEY, JSON.stringify(d)); }
+
+function addHolding(player, qty, pricePaid) {
+  const d = getPortfolio();
+  const ex = d.find(x => x.player === player && x.pricePaid === pricePaid);
+  if (ex) { ex.qty += qty; } else { d.push({ player, qty, pricePaid }); }
+  savePortfolio(d);
+  buildPortfolio();
+  buildStats();
+}
+
+function clearPortfolio() {
+  if (confirm("Clear your local portfolio tracker?\n\nThis doesn't cancel your shares — keep your Stripe receipt as proof.")) {
+    localStorage.removeItem(PORT_KEY);
+    buildPortfolio();
+    buildStats();
+  }
+}
+
+function buildPortfolio() {
+  const data = getPortfolio();
+  const el   = $("portfolio");
+  if (!data.length) {
+    el.innerHTML = `<div class="port-empty"><div class="port-empty-icon">🎱</div><div style="font-size:16px;font-weight:700;margin-bottom:6px">No shares yet</div><div style="font-size:14px">Buy some above — your holdings will track here.</div></div>`;
+    return;
+  }
+
+  const priceMap = {};
+  CONFIG.players.forEach(p => { priceMap[p.name] = sharePrice(p.rank); });
+
+  let totalPaid = 0, totalNow = 0;
+  const rows = data.map(x => {
+    const now   = (priceMap[x.player] || x.pricePaid) * x.qty;
+    const paid  = x.pricePaid * x.qty;
+    const gain  = now - paid;
+    const gainP = Math.round(gain / paid * 100);
+    totalPaid += paid; totalNow += now;
+    return `
+      <div class="port-item">
+        <div class="port-left">
+          <div class="port-name">${x.player}</div>
+          <div class="port-detail">${x.qty} share${x.qty>1?"s":""} · bought at ${$$(x.pricePaid)}</div>
+        </div>
+        <div class="port-right">
+          <div class="port-val ${gain>0?"up":"even"}">${$$(now)}</div>
+          <div class="port-gain ${gain>0?"up":gain<0?"down":"even"}">${gain>=0?"+":""}${$$(gain)} (${gainP>=0?"+":""}${gainP}%)</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const totalGain = totalNow - totalPaid;
+  const totalPct  = Math.round(totalGain / totalPaid * 100);
+
+  el.innerHTML = `
+    <div class="port-grid">
+      ${rows}
+      <div class="port-total">
+        <span>Total Portfolio</span>
+        <span style="color:${totalGain>=0?"var(--green)":"var(--red)"}">${$$(totalNow)} (${totalGain>=0?"+":""}${totalPct}%)</span>
+      </div>
+    </div>`;
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  MODAL                                                ║
+// ╚═══════════════════════════════════════════════════════╝
+let M = { player:"", price:0, rank:0, qty:1 };
+
+function openModal(player, price, rank) {
+  M = { player, price, rank, qty:1 };
+  $("mTitle").textContent = `Buy Shares in ${player}`;
+  $("mSub").textContent   = `${rankLabel(rank)} · ${$$(price)} per share`;
+  refreshModal();
+  $("overlay").classList.add("open");
+}
+
+function closeModal() { $("overlay").classList.remove("open"); }
+function maybeClose(e) { if (e.target === $("overlay")) closeModal(); }
+
+function adjQty(d) {
+  M.qty = Math.max(1, Math.min(10, M.qty + d));
+  refreshModal();
+}
+
+function refreshModal() {
+  const total     = M.price * M.qty;
+  const champPay  = CONFIG.payouts.champ * M.qty;
+  const qfPay     = CONFIG.payouts.qf * M.qty;
+  const champRoi  = roi(M.price, CONFIG.payouts.champ);
+  const url       = stripeUrl(M.price, M.qty);
+
+  $("qtyNum").textContent  = M.qty;
+  $("mTotal").textContent  = $$(total);
+  $("mPreview").innerHTML  = `
+    <strong>If ${M.player} wins the championship:</strong><br>
+    You collect ${$$(champPay)} — that's +${champRoi}% on your ${$$(total)} investment.<br>
+    <span style="color:rgba(0,229,160,.6)">Even with a QF exit, you still receive ${$$(qfPay)} back.</span>`;
+
+  const link = $("checkoutLink");
+  if (url) {
+    link.href = url;
+    link.onclick = () => {
+      setTimeout(() => {
+        addHolding(M.player, M.qty, M.price);
+        closeModal();
+        setTimeout(() => $("portfolio").scrollIntoView({ behavior:"smooth" }), 400);
+      }, 300);
+    };
+    link.textContent = `💳 Pay ${$$(total)} with Stripe →`;
+    link.style.opacity = "1";
+    link.style.pointerEvents = "auto";
+  } else {
+    link.href = "#";
+    link.onclick = (e) => { e.preventDefault(); alert("⚠️ Stripe not set up yet.\n\nSee STRIPE_SETUP.md to add your payment links."); return false; };
+    link.textContent = "⚠️ Stripe Not Configured";
+    link.style.opacity = "0.5";
+  }
+}
+
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  OPERATOR TOGGLE                                      ║
+// ╚═══════════════════════════════════════════════════════╝
+function toggleOp() {
+  const panel = document.getElementById('opPanel');
+  const arrow = document.getElementById('opArrow');
+  const open  = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  arrow.textContent   = open ? '▲' : '▼';
+}
+
+// ╔═══════════════════════════════════════════════════════╗
+// ║  INIT                                                 ║
+// ╚═══════════════════════════════════════════════════════╝
+buildTicker();
+buildStats();
+buildGrid();
+buildMath();
+buildPortfolio();
+</script>
+</body>
+</html>
