@@ -20,7 +20,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useMemo } = React;
+const { useState, useMemo, useEffect } = React;
+
+// ─── PERSISTENCE ──────────────────────────────────────────────────────────────
+const SAVE_KEY = "bml_dashboard_v1";
+const saveState = (state) => {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
+};
+const loadState = () => {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+};
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const C = {
   bg: "#0e0e1a", card: "#16162a", cardBorder: "#2a2a45",
@@ -119,15 +131,31 @@ const calcStandings = (players, matches) => {
 };
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 function App() {
+  const saved = loadState();
   const [tab, setTab]       = useState("home");
-  const [season, setSeason] = useState(1);
-  const [s1players, setS1Players]   = useState(defaultPlayers());
-  const [s1matches, setS1Matches]   = useState(defaultMatches(0));
-  const [s2players, setS2Players]   = useState(defaultPlayers());
-  const [s2matches, setS2Matches]   = useState(defaultMatches(PLAYER_COUNT/2 * WEEK_COUNT));
-  const [supporters, setSupporters] = useState(defaultSupporters());
-  const [sixBall, setSixBall]       = useState(default6Ball());
-  const [playoffs, setPlayoffs]     = useState(defaultPlayoffs());
+  const [season, setSeason] = useState(saved?.season ?? 1);
+  const [s1players, setS1Players]   = useState(saved?.s1players   ?? defaultPlayers());
+  const [s1matches, setS1Matches]   = useState(saved?.s1matches   ?? defaultMatches(0));
+  const [s2players, setS2Players]   = useState(saved?.s2players   ?? defaultPlayers());
+  const [s2matches, setS2Matches]   = useState(saved?.s2matches   ?? defaultMatches(PLAYER_COUNT/2 * WEEK_COUNT));
+  const [supporters, setSupporters] = useState(saved?.supporters  ?? defaultSupporters());
+  const [sixBall, setSixBall]       = useState(saved?.sixBall     ?? default6Ball());
+  const [playoffs, setPlayoffs]     = useState(saved?.playoffs    ?? defaultPlayoffs());
+  const [lastSaved, setLastSaved]   = useState(null);
+
+  // Auto-save whenever any data changes
+  useEffect(() => {
+    saveState({ season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs });
+    setLastSaved(new Date().toLocaleTimeString());
+  }, [season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs]);
+
+  const resetAll = () => {
+    if (!confirm("Reset ALL data? This cannot be undone.")) return;
+    localStorage.removeItem(SAVE_KEY);
+    setSeason(1); setS1Players(defaultPlayers()); setS1Matches(defaultMatches(0));
+    setS2Players(defaultPlayers()); setS2Matches(defaultMatches(PLAYER_COUNT/2*WEEK_COUNT));
+    setSupporters(defaultSupporters()); setSixBall(default6Ball()); setPlayoffs(defaultPlayoffs());
+  };
   const players    = season===1 ? s1players : s2players;
   const matches    = season===1 ? s1matches : s2matches;
   const setPlayers = season===1 ? setS1Players : setS2Players;
@@ -208,9 +236,15 @@ function App() {
           <div style={{ fontSize:11, color:C.red, fontWeight:800, letterSpacing:3, textTransform:"uppercase" }}>Action Ladder</div>
           <div style={{ fontSize:20, fontWeight:900, color:C.white, lineHeight:1 }}>BilliardsMarketLadder</div>
         </div>
-        <div style={{ marginLeft:"auto", textAlign:"right" }}>
-          <div style={{ fontSize:11, color:C.gray }}>Net profit</div>
-          <div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:16 }}>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:11, color:C.gray }}>Net profit</div>
+            <div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            {lastSaved && <div style={{ fontSize:10, color:C.green, marginBottom:2 }}>💾 Saved {lastSaved}</div>}
+            <button onClick={resetAll} style={{ background:"#2a0010", border:`1px solid ${C.red}`, color:C.red, borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700 }}>Reset All</button>
+          </div>
         </div>
       </div>
       <div style={{ background:"#0a0a18", borderBottom:`1px solid ${C.cardBorder}`, padding:"8px 20px", display:"flex", alignItems:"center", gap:10 }}>
