@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BilliardsMarketLadder — Operator Dashboard</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0e0e1a; }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance:none; }
+  input[type=number] { -moz-appearance:textfield; }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:#0e0e1a; }
+  ::-webkit-scrollbar-thumb { background:#2a2a45; border-radius:3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useMemo, useEffect } = React;
+
+// ─── PERSISTENCE ──────────────────────────────────────────────────────────────
+const SAVE_KEY = "bml_dashboard_v1";
+const saveState = (state) => {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
+};
+const loadState = () => {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+};
+// ─── COLORS ───────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#0e0e1a", card: "#16162a", cardBorder: "#2a2a45",
+  red: "#e94560", green: "#00c896", gold: "#f5c842",
+  blue: "#4fa3ff", purple: "#a855f7", white: "#f0f0ff",
+  gray: "#8888aa", dimBg: "#12121f", orange: "#ff8c42",
+};
+const PLAYER_COUNT = 16;
+const WEEK_COUNT   = 8;
+const SEASON_PRIZES  = { p1: 1000, p2: 500, p3: 250, mvp: 150 };
+const PLAYOFF_PRIZES = { p1: 600, p2: 300, p3: 100 };
+const SIX_PRIZES     = { p1: 200, p2: 100, p3: 50 };
+const getSharePrice = (playerName, standings) => {
+  const rank = standings.findIndex(s => s.name === playerName);
+  if (rank < 0)  return 25;
+  if (rank < 2)  return 75;
+  if (rank < 4)  return 50;
+  if (rank < 8)  return 35;
+  return 25;
+};
+const getPlayoffPayout = (playerName, playoffs) => {
+  if (!playerName) return 0;
+  const champ = playoffs.find(m => m.round.includes("Championship"));
+  const sf1   = playoffs.find(m => m.round.includes("Semifinal 1"));
+  const sf2   = playoffs.find(m => m.round.includes("Semifinal 2"));
+  const cw  = champ ? getWinner(champ) : null;
+  const s1w = sf1   ? getWinner(sf1)   : null;
+  const s2w = sf2   ? getWinner(sf2)   : null;
+  if (cw === playerName) return 100;
+  if (champ && (champ.a === playerName || champ.b === playerName)) return 60;
+  if (s1w === playerName || s2w === playerName) return 30;
+  const inQF = playoffs.slice(0,4).some(m => m.a === playerName || m.b === playerName);
+  if (inQF) return 10;
+  return 0;
+};
+const defaultPlayers = () =>
+  Array.from({ length: PLAYER_COUNT }, (_, i) => ({
+    id: i+1, name: "", paid: false, weeksPaid: 0, fastTime: false,
+  }));
+const defaultMatches = (weekOffset = 0) => {
+  const out = []; let id = 1 + weekOffset * (PLAYER_COUNT/2);
+  for (let w = 1; w <= WEEK_COUNT; w++)
+    for (let m = 0; m < PLAYER_COUNT/2; m++)
+      out.push({ id: id++, week: w, a:"", b:"", aScore:"", bScore:"" });
+  return out;
+};
+const defaultSupporters = () =>
+  Array.from({ length: 40 }, (_, i) => ({
+    id: i+1, name:"", player:"", shares:0,
+    pricePaid: 25,
+    cashedS1: false,
+  }));
+const default6Ball = () =>
+  Array.from({ length: PLAYER_COUNT }, (_, i) => ({
+    id: i+1, name:"", time:"", eligible: false,
+  }));
+const defaultPlayoffs = () => [
+  { id:1, round:"Quarterfinal 1",  a:"", b:"", aScore:"", bScore:"" },
+  { id:2, round:"Quarterfinal 2",  a:"", b:"", aScore:"", bScore:"" },
+  { id:3, round:"Quarterfinal 3",  a:"", b:"", aScore:"", bScore:"" },
+  { id:4, round:"Quarterfinal 4",  a:"", b:"", aScore:"", bScore:"" },
+  { id:5, round:"Semifinal 1",     a:"", b:"", aScore:"", bScore:"" },
+  { id:6, round:"Semifinal 2",     a:"", b:"", aScore:"", bScore:"" },
+  { id:7, round:"🏆 Championship", a:"", b:"", aScore:"", bScore:"" },
+];
+const $$ = (n) => {
+  if (!n && n !== 0) return "$0";
+  const abs = Math.abs(n);
+  const s = abs % 1 === 0 ? abs.toLocaleString()
+    : abs.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+  return (n < 0 ? "–$" : "$") + s;
+};
+const getWinner = (m) => {
+  if (!m || (!m.a && !m.b)) return null;
+  if (m.aScore==="" && m.bScore==="") return null;
+  const a = parseInt(m.aScore)||0, b = parseInt(m.bScore)||0;
+  if (a===0 && b===0) return null;
+  if (a > b) return m.a || "Player A";
+  if (b > a) return m.b || "Player B";
+  return "Tie";
+};
+const calcStandings = (players, matches) => {
+  const stats = {};
+  players.forEach(p => { if (p.name) stats[p.name] = { w:0, l:0, t:0 }; });
+  matches.forEach(m => {
+    const w = getWinner(m);
+    if (!w) return;
+    if (w==="Tie") { if(stats[m.a]) stats[m.a].t++; if(stats[m.b]) stats[m.b].t++; return; }
+    const loser = w===m.a ? m.b : m.a;
+    if (stats[w]) stats[w].w++;
+    if (stats[loser]) stats[loser].l++;
+  });
+  return Object.entries(stats)
+    .map(([name,s]) => ({ name, ...s, pts: s.w*2+s.t }))
+    .sort((a,b) => b.pts-a.pts || b.w-a.w);
+};
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function App() {
+  const saved = loadState();
+  const [tab, setTab]       = useState("home");
+  const [season, setSeason] = useState(saved?.season ?? 1);
+  const [s1players, setS1Players]   = useState(saved?.s1players   ?? defaultPlayers());
+  const [s1matches, setS1Matches]   = useState(saved?.s1matches   ?? defaultMatches(0));
+  const [s2players, setS2Players]   = useState(saved?.s2players   ?? defaultPlayers());
+  const [s2matches, setS2Matches]   = useState(saved?.s2matches   ?? defaultMatches(PLAYER_COUNT/2 * WEEK_COUNT));
+  const [supporters, setSupporters] = useState(saved?.supporters  ?? defaultSupporters());
+  const [sixBall, setSixBall]       = useState(saved?.sixBall     ?? default6Ball());
+  const [playoffs, setPlayoffs]     = useState(saved?.playoffs    ?? defaultPlayoffs());
+  const [lastSaved, setLastSaved]   = useState(null);
+
+  // Auto-save whenever any data changes
+  useEffect(() => {
+    saveState({ season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs });
+    setLastSaved(new Date().toLocaleTimeString());
+  }, [season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs]);
+
+  const resetAll = () => {
+    if (!confirm("Reset ALL data? This cannot be undone.")) return;
+    localStorage.removeItem(SAVE_KEY);
+    setSeason(1); setS1Players(defaultPlayers()); setS1Matches(defaultMatches(0));
+    setS2Players(defaultPlayers()); setS2Matches(defaultMatches(PLAYER_COUNT/2*WEEK_COUNT));
+    setSupporters(defaultSupporters()); setSixBall(default6Ball()); setPlayoffs(defaultPlayoffs());
+  };
+  const players    = season===1 ? s1players : s2players;
+  const matches    = season===1 ? s1matches : s2matches;
+  const setPlayers = season===1 ? setS1Players : setS2Players;
+  const setMatches = season===1 ? setS1Matches : setS2Matches;
+  const s1standings = useMemo(() => calcStandings(s1players, s1matches), [s1players, s1matches]);
+  const s2standings = useMemo(() => calcStandings(s2players, s2matches), [s2players, s2matches]);
+  const standings   = season===1 ? s1standings : s2standings;
+  const sixRanked = useMemo(() =>
+    [...sixBall]
+      .filter(b => b.eligible && b.time!=="" && !isNaN(parseFloat(b.time)))
+      .sort((a,b) => parseFloat(a.time)-parseFloat(b.time))
+      .map((b,i) => ({ ...b, rank:i+1, prize:[SIX_PRIZES.p1,SIX_PRIZES.p2,SIX_PRIZES.p3][i]||0 })),
+  [sixBall]);
+  const money = useMemo(() => {
+    const s1reg  = s1players.filter(p=>p.paid).length * 150;
+    const s1week = s1players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
+    const s1fast = s1players.filter(p=>p.fastTime).length * 30;
+    const s1base = s1reg + s1week + s1fast;
+    const s2reg  = s2players.filter(p=>p.paid).length * 150;
+    const s2week = s2players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
+    const s2base = s2reg + s2week;
+    const totalBase = s1base + s2base;
+    const barCut    = Math.round(totalBase * 0.05);
+    const activeSupp  = supporters.filter(s => !s.cashedS1);
+    const cashedSupp  = supporters.filter(s => s.cashedS1);
+    const shareVolCollected = supporters.reduce((s,x) =>
+      s + (parseInt(x.shares)||0) * x.pricePaid, 0);
+    const activeMarketVal = activeSupp.reduce((s,x) => {
+      const mktPrice = getSharePrice(x.player, s2standings);
+      return s + (parseInt(x.shares)||0) * mktPrice;
+    },0);
+    const s1cashoutTotal = cashedSupp.reduce((s,x)=> s+(parseInt(x.shares)||0)*x.pricePaid,0);
+    const opShareFee  = Math.round(shareVolCollected * 0.15);
+    const barShareCut = Math.round(shareVolCollected * 0.02);
+    const supPool     = shareVolCollected - opShareFee - barShareCut;
+    const seasonPayouts  = (SEASON_PRIZES.p1+SEASON_PRIZES.p2+SEASON_PRIZES.p3+SEASON_PRIZES.mvp)*2;
+    const playoffPayouts = PLAYOFF_PRIZES.p1+PLAYOFF_PRIZES.p2+PLAYOFF_PRIZES.p3;
+    const sixPayouts     = SIX_PRIZES.p1+SIX_PRIZES.p2+SIX_PRIZES.p3;
+    const baseProfit = totalBase - barCut - seasonPayouts - playoffPayouts - sixPayouts;
+    const netProfit  = baseProfit + opShareFee - barShareCut;
+    const perPartner = netProfit / 4;
+    return {
+      s1base, s2base, totalBase, barCut,
+      shareVolCollected, activeMarketVal, s1cashoutTotal,
+      opShareFee, barShareCut, supPool,
+      supPool1: Math.round(supPool*0.70),
+      supPool2: Math.round(supPool*0.20),
+      supPool3: Math.round(supPool*0.10),
+      seasonPayouts, playoffPayouts, sixPayouts,
+      baseProfit, netProfit, perPartner,
+      totalBar: barCut+barShareCut,
+    };
+  }, [s1players, s2players, supporters, s2standings]);
+  const TABS = [
+    { id:"home",        icon:"🏠", label:"Home" },
+    { id:"players",     icon:"👤", label:"Players" },
+    { id:"matches",     icon:"🎱", label:"Matches" },
+    { id:"standings",   icon:"🏆", label:"Standings" },
+    { id:"sixball",     icon:"⚡",  label:"6-Ball" },
+    { id:"shares",      icon:"💰", label:"Shares" },
+    { id:"playoffs",    icon:"🥊", label:"Playoffs" },
+    { id:"money",       icon:"📊", label:"Money" },
+    { id:"pnl",         icon:"📋", label:"P&L All" },
+    { id:"playerboard", icon:"📺", label:"Player View" },
+  ];
+  const views = {
+    players, setPlayers, matches, setMatches,
+    supporters, setSupporters, sixBall, setSixBall,
+    playoffs, setPlayoffs, standings, sixRanked, money,
+    s1standings, s2standings, season, setSeason, setTab,
+    s1players, s2players, s1matches, s2matches,
+  };
+  return (
+    <div style={{ fontFamily:"'Segoe UI',Arial,sans-serif", background:C.bg, minHeight:"100vh", color:C.white }}>
+      <div style={{ background:C.card, borderBottom:`3px solid ${C.red}`, padding:"12px 20px", display:"flex", alignItems:"center", gap:12 }}>
+        <span style={{ fontSize:28 }}>⚡</span>
+        <div>
+          <div style={{ fontSize:11, color:C.red, fontWeight:800, letterSpacing:3, textTransform:"uppercase" }}>Action Ladder</div>
+          <div style={{ fontSize:20, fontWeight:900, color:C.white, lineHeight:1 }}>BilliardsMarketLadder</div>
+        </div>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:16 }}>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:11, color:C.gray }}>Net profit</div>
+            <div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            {lastSaved && <div style={{ fontSize:10, color:C.green, marginBottom:2 }}>💾 Saved {lastSaved}</div>}
+            <button onClick={resetAll} style={{ background:"#2a0010", border:`1px solid ${C.red}`, color:C.red, borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700 }}>Reset All</button>
+          </div>
+        </div>
+      </div>
+      <div style={{ background:"#0a0a18", borderBottom:`1px solid ${C.cardBorder}`, padding:"8px 20px", display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:12, color:C.gray, marginRight:4 }}>Active Season:</span>
+        {[1,2].map(s => (
+          <button key={s} onClick={() => setSeason(s)} style={{
+            background: season===s ? C.red : C.card,
+            border:`2px solid ${season===s ? C.red : C.cardBorder}`,
+            color:C.white, borderRadius:8, padding:"5px 18px",
+            cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700,
+          }}>Season {s}</button>
+        ))}
+        <span style={{ fontSize:11, color:C.gray, marginLeft:8 }}>
+          {season===1 ? "🟡 Season 1 running — supporters can hold or cash out at end" : "🟢 Season 2 running — all shares cash out after playoffs"}
+        </span>
+      </div>
+      <div style={{ display:"flex", overflowX:"auto", background:C.dimBg, borderBottom:`1px solid ${C.cardBorder}` }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            flex:"0 0 auto", background:"none", border:"none",
+            borderBottom:`3px solid ${tab===t.id ? C.red : "transparent"}`,
+            color:tab===t.id ? C.white : C.gray,
+            padding:"10px 14px", cursor:"pointer", fontFamily:"inherit",
+            fontSize:11, fontWeight:tab===t.id?700:400,
+            display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+          }}>
+            <span style={{ fontSize:17 }}>{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ padding:"20px", maxWidth:980, margin:"0 auto" }}>
+        {tab==="home"        && <HomeView {...views} />}
+        {tab==="players"     && <PlayersView {...views} />}
+        {tab==="matches"     && <MatchesView {...views} />}
+        {tab==="standings"   && <StandingsView {...views} />}
+        {tab==="sixball"     && <SixBallView {...views} />}
+        {tab==="shares"      && <SharesView {...views} />}
+        {tab==="playoffs"    && <PlayoffsView {...views} />}
+        {tab==="money"       && <MoneyView {...views} />}
+        {tab==="pnl"         && <PnLView {...views} />}
+        {tab==="playerboard" && <PlayerBoardView {...views} />}
+      </div>
+    </div>
+  );
+}
+// ─── SHARED UI ────────────────────────────────────────────────────────────────
+function BigCard({ icon, title, value, sub, color, onClick }) {
+  return (
+    <div onClick={onClick} style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderTop:`4px solid ${color||C.green}`, borderRadius:12, padding:18, cursor:onClick?"pointer":"default" }}>
+      <div style={{ fontSize:26, marginBottom:4 }}>{icon}</div>
+      <div style={{ fontSize:11, color:C.gray, textTransform:"uppercase", letterSpacing:1, marginBottom:2 }}>{title}</div>
+      <div style={{ fontSize:24, fontWeight:900, color:color||C.green }}>{value}</div>
+      {sub && <div style={{ fontSize:11, color:C.gray, marginTop:3 }}>{sub}</div>}
+    </div>
+  );
+}
+function Card({ children, title, icon, borderColor }) {
+  return (
+    <div style={{ background:C.card, border:`1px solid ${borderColor||C.cardBorder}`, borderRadius:10, overflow:"hidden", marginBottom:16 }}>
+      {title && (
+        <div style={{ background:C.dimBg, padding:"10px 16px", fontSize:13, fontWeight:700, borderBottom:`1px solid ${borderColor||C.cardBorder}` }}>
+          {icon && <span style={{ marginRight:6 }}>{icon}</span>}{title}
+        </div>
+      )}
+      <div style={{ padding:16 }}>{children}</div>
+    </div>
+  );
+}
+function PageTitle({ icon, title, desc }) {
+  return (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:26, fontWeight:900 }}>{icon} {title}</div>
+      {desc && <div style={{ color:C.gray, fontSize:14, marginTop:4 }}>{desc}</div>}
+    </div>
+  );
+}
+function Tip({ children, color }) {
+  return (
+    <div style={{ background: color ? color+"22" : "#1a1a35", border:`1px solid ${color||"#3333aa"}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:color||"#9999ee", marginBottom:16, display:"flex", gap:8 }}>
+      <span>💡</span><span>{children}</span>
+    </div>
+  );
+}
+function MRow({ label, value, color, big, indent }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:big?"11px 0":"7px 0", borderBottom:`1px solid ${C.cardBorder}`, paddingLeft:indent?18:0 }}>
+      <span style={{ fontSize:big?14:13, color:big?C.white:C.gray }}>{label}</span>
+      <span style={{ fontSize:big?17:14, fontWeight:big?900:600, color:color||C.white }}>{value}</span>
+    </div>
+  );
+}
+function CheckBox({ checked, onChange, label, color }) {
+  return (
+    <button onClick={() => onChange(!checked)} style={{
+      background:checked?(color||C.green)+"22":"#1a1a2e",
+      border:`2px solid ${checked?(color||C.green):"#3333aa"}`,
+      borderRadius:6, color:checked?(color||C.green):C.gray,
+      padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, minWidth:70,
+    }}>{label}</button>
+  );
+}
+const btnSm = { background:"#2a2a45", border:"none", color:C.white, width:26, height:26, borderRadius:6, cursor:"pointer", fontSize:16, fontWeight:700, fontFamily:"inherit" };
+const selStyle = { background:C.dimBg, border:`1px solid ${C.cardBorder}`, color:C.white, borderRadius:6, padding:"8px 10px", fontFamily:"inherit", fontSize:14, width:"100%", outline:"none" };
+const textInp = { background:"transparent", border:"none", borderBottom:`1px solid ${C.cardBorder}`, color:C.white, fontSize:14, padding:"4px 6px", fontFamily:"inherit", outline:"none", width:"100%" };
+// ─── HOME ─────────────────────────────────────────────────────────────────────
+function HomeView({ money, standings, s1standings, s2standings, season, setSeason, setTab, players }) {
+  return (
+    <div>
+      <div style={{ textAlign:"center", padding:"16px 0 24px" }}>
+        <div style={{ fontSize:48 }}>🎱</div>
+        <div style={{ fontSize:26, fontWeight:900 }}>BilliardsMarketLadder</div>
+        <div style={{ fontSize:15, color:C.gray, marginTop:6 }}>Two seasons. One championship. Shares that grow the whole time.</div>
+      </div>
+      <Card title="How the 2-Season League Works" icon="📋" borderColor={C.blue}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div style={{ background:C.dimBg, borderRadius:8, padding:14, border:`1px solid ${C.gold}` }}>
+            <div style={{ fontSize:13, fontWeight:900, color:C.gold, marginBottom:8 }}>📅 SEASON 1 — Weeks 1–8</div>
+            <div style={{ fontSize:13, color:C.gray, lineHeight:1.7 }}>
+              • Play 8 weeks of matches<br/>
+              • Top 3 earn season prizes<br/>
+              • Standings reset after<br/>
+              • 🔑 Supporters choose: <strong style={{ color:C.white }}>cash out</strong> or <strong style={{ color:C.green }}>hold shares</strong>
+            </div>
+          </div>
+          <div style={{ background:C.dimBg, borderRadius:8, padding:14, border:`1px solid ${C.purple}` }}>
+            <div style={{ fontSize:13, fontWeight:900, color:C.purple, marginBottom:8 }}>📅 SEASON 2 — Weeks 9–16</div>
+            <div style={{ fontSize:13, color:C.gray, lineHeight:1.7 }}>
+              • Fresh standings, same players<br/>
+              • Top 3 earn season prizes again<br/>
+              • Top 8 go to playoffs<br/>
+              • 🏆 All shares MUST cash out after playoffs
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop:12, background:"#001a10", borderRadius:8, padding:"12px 16px", fontSize:13, color:C.green }}>
+          💡 A player can win <strong>Season 1 prizes + Season 2 prizes + Playoff prize</strong> — three paydays total. Max = $2,600
+        </div>
+      </Card>
+      <Card title="How Shares Work — Like a Stock" icon="📈" borderColor={C.gold}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+          {[["⚪ Unranked","$25",C.gray],["🔵 Top 8","$35",C.blue],["🟡 Top 4","$50",C.gold],["🔴 Top 2","$75",C.red]].map(([l,v,c])=>(
+            <div key={l} style={{ background:C.dimBg, borderRadius:8, padding:"10px 8px", textAlign:"center", border:`1px solid ${c}` }}>
+              <div style={{ fontSize:11, color:C.gray }}>{l}</div>
+              <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:13, color:C.gray, lineHeight:1.8 }}>
+          ✅ <strong style={{ color:C.white }}>Buy in</strong> at whatever the player is ranked right now — that price is locked as your cost.<br/>
+          📈 <strong style={{ color:C.green }}>Hold</strong> and if the player climbs, your shares are worth more at cash-out.<br/>
+          💵 <strong style={{ color:C.gold }}>Cash out</strong> at end of Season 1 at the current market price — or hold for Season 2 playoffs.<br/>
+          🏆 <strong style={{ color:C.red }}>Final cash-out</strong> is mandatory at end of Season 2 playoffs. Champion backers earn $100/share.
+        </div>
+        <div style={{ marginTop:10, background:"#0a0a20", border:`1px solid ${C.blue}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:C.blue }}>
+          Example: Buy 10 shares at $25 when player is unranked = <strong>$250 in</strong>. Player wins championship → <strong>$1,000 back</strong>. That's a 4× return.
+        </div>
+      </Card>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="💵" title="Total revenue (both seasons)" value={$$(money.totalBase)} color={C.green} onClick={() => setTab("money")} />
+        <BigCard icon="📈" title="Your net profit" value={$$(money.netProfit)} color={C.red} onClick={() => setTab("money")} sub="tap for full breakdown" />
+        <BigCard icon="🤝" title="Per partner ÷4" value={$$(money.perPartner)} color={C.gold} onClick={() => setTab("money")} />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {[
+          { tab:"players",     icon:"👤", label:"Add Players",        desc:"Register all 16 players" },
+          { tab:"matches",     icon:"🎱", label:"Enter Matches",       desc:"Record weekly scores" },
+          { tab:"shares",      icon:"💰", label:"Manage Shares",       desc:"Buy ins, hold, cash out" },
+          { tab:"pnl",         icon:"📋", label:"Full P&L — Everyone", desc:"Players, supporters, operators, bar" },
+        ].map(item => (
+          <div key={item.tab} onClick={() => setTab(item.tab)} style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:10, padding:"14px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:24 }}>{item.icon}</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:14 }}>{item.label}</div>
+              <div style={{ fontSize:12, color:C.gray }}>{item.desc}</div>
+            </div>
+            <span style={{ marginLeft:"auto", color:C.gray }}>›</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+// ─── PLAYERS ─────────────────────────────────────────────────────────────────
+function PlayersView({ players, setPlayers, season }) {
+  const upd = (i,k,v) => setPlayers(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
+  const totReg  = players.filter(p=>p.paid).length * 150;
+  const totWeek = players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
+  const totFast = season===1 ? players.filter(p=>p.fastTime).length * 30 : 0;
+  return (
+    <div>
+      <PageTitle icon="👤" title={`Players — Season ${season}`} desc={season===1 ? "Register all 16 players and collect fees." : "Season 2 — same players, fresh week count."} />
+      <Tip>{season===1 ? "Check Reg Paid when they pay $150. Set weeks paid as they pay each week ($25). Check 6-Ball if they paid the one-time $30 fee." : "Registration is paid again for Season 2 ($150). Weekly dues continue ($25/wk)."}</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="💵" title="Registration" value={$$(totReg)} color={C.green} />
+        <BigCard icon="📅" title="Weekly dues" value={$$(totWeek)} color={C.blue} />
+        {season===1 && <BigCard icon="⚡" title="6-Ball one-time" value={$$(totFast)} color={C.gold} />}
+      </div>
+      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
+        <div style={{ display:"grid", gridTemplateColumns:season===1?"30px 1fr 100px 120px 100px":"30px 1fr 100px 120px", gap:8, padding:"10px 14px", background:C.dimBg }}>
+          {(season===1
+            ? ["#","Player Name","Reg Paid\n($150)","Weeks Paid\n($25/wk)","6-Ball\n($30 once)"]
+            : ["#","Player Name","Reg Paid S2\n($150)","Weeks Paid\n($25/wk)"]
+          ).map(h=>(
+            <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center", whiteSpace:"pre-line", lineHeight:1.3 }}>{h}</div>
+          ))}
+        </div>
+        {players.map((p,i)=>(
+          <div key={p.id} style={{ display:"grid", gridTemplateColumns:season===1?"30px 1fr 100px 120px 100px":"30px 1fr 100px 120px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+            <div style={{ fontSize:12, color:C.gray, textAlign:"center" }}>{i+1}</div>
+            <input value={p.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
+            <div style={{ display:"flex", justifyContent:"center" }}>
+              <CheckBox checked={p.paid} onChange={v=>upd(i,"paid",v)} label={p.paid?"✓ Paid":"Not paid"} color={C.green} />
+            </div>
+            <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6 }}>
+              <button onClick={()=>upd(i,"weeksPaid",Math.max(0,(parseInt(p.weeksPaid)||0)-1))} style={btnSm}>−</button>
+              <span style={{ minWidth:22, textAlign:"center", fontWeight:900, fontSize:16, color:C.gold }}>{p.weeksPaid||0}</span>
+              <button onClick={()=>upd(i,"weeksPaid",Math.min(8,(parseInt(p.weeksPaid)||0)+1))} style={btnSm}>+</button>
+            </div>
+            {season===1 && (
+              <div style={{ display:"flex", justifyContent:"center" }}>
+                <CheckBox checked={p.fastTime} onChange={v=>upd(i,"fastTime",v)} label={p.fastTime?"✓ In":"Out"} color={C.blue} />
+              </div>
+            )}
+          </div>
+        ))}
+        <div style={{ background:"#0a1a0a", border:`2px solid ${C.green}`, padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:14, fontWeight:700 }}>Season {season} total collected:</span>
+          <span style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(totReg+totWeek+totFast)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+// ─── MATCHES ─────────────────────────────────────────────────────────────────
+function MatchesView({ matches, setMatches, players, season }) {
+  const upd = (i,k,v) => setMatches(ms=>ms.map((m,idx)=>idx===i?{...m,[k]:v}:m));
+  const names = players.map(p=>p.name).filter(Boolean);
+  const weeks = [...new Set(matches.map(m=>m.week))];
+  const [openWeek, setOpenWeek] = useState(1);
+  return (
+    <div>
+      <PageTitle icon="🎱" title={`Match Results — Season ${season}`} desc="Select two players, enter scores. Winner auto-detects." />
+      <Tip>Pick a week, fill in the match. Scores update standings and share prices automatically.</Tip>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20 }}>
+        {weeks.map(w=>{
+          const wm = matches.filter(m=>m.week===w);
+          const done = wm.filter(m=>getWinner(m)).length;
+          return (
+            <button key={w} onClick={()=>setOpenWeek(w)} style={{ background:openWeek===w?C.red:C.card, border:`2px solid ${openWeek===w?C.red:C.cardBorder}`, color:C.white, borderRadius:8, padding:"8px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700 }}>
+              Week {w} <span style={{ fontSize:11, opacity:0.7 }}>({done}/{wm.length})</span>
+            </button>
+          );
+        })}
+      </div>
+      {matches.filter(m=>m.week===openWeek).map((m,idx)=>{
+        const mi = matches.findIndex(x=>x.id===m.id);
+        const w = getWinner(m);
+        return (
+          <div key={m.id} style={{ background:C.card, border:`2px solid ${w?C.green+"66":C.cardBorder}`, borderRadius:12, padding:16, marginBottom:12 }}>
+            <div style={{ fontSize:11, color:C.gray, fontWeight:700, marginBottom:10 }}>S{season} MATCH {m.id} — WEEK {m.week}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 1fr", gap:10, alignItems:"end" }}>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5 }}>Player A</div>
+                <select value={m.a} onChange={e=>upd(mi,"a",e.target.value)} style={selStyle}>
+                  <option value="">— pick player —</option>
+                  {names.map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5, textAlign:"center" }}>Score</div>
+                <input type="number" min={0} value={m.aScore} onChange={e=>upd(mi,"aScore",e.target.value)} style={{ ...selStyle, textAlign:"center", fontWeight:900, fontSize:22, color:C.gold }} />
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5, textAlign:"center" }}>Score</div>
+                <input type="number" min={0} value={m.bScore} onChange={e=>upd(mi,"bScore",e.target.value)} style={{ ...selStyle, textAlign:"center", fontWeight:900, fontSize:22, color:C.gold }} />
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5 }}>Player B</div>
+                <select value={m.b} onChange={e=>upd(mi,"b",e.target.value)} style={selStyle}>
+                  <option value="">— pick player —</option>
+                  {names.map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+            </div>
+            {w && (
+              <div style={{ marginTop:12, background:w==="Tie"?"#2a2a00":"#002a16", borderRadius:8, padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:22 }}>{w==="Tie"?"🤝":"🏆"}</span>
+                <span style={{ fontSize:16, fontWeight:800, color:w==="Tie"?C.gold:C.green }}>{w==="Tie"?"It's a Tie!":`Winner: ${w}`}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// ─── STANDINGS ────────────────────────────────────────────────────────────────
+function StandingsView({ standings, s1standings, s2standings, season }) {
+  return (
+    <div>
+      <PageTitle icon="🏆" title={`Standings — Season ${season}`} desc="Win = 2pts · Tie = 1pt · Loss = 0" />
+      {s2standings.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+          {[{label:"Season 1 Final", data:s1standings, color:C.gold},{label:"Season 2 Current", data:s2standings, color:C.purple}].map(({label,data,color})=>(
+            <div key={label} style={{ background:C.card, border:`1px solid ${color}`, borderRadius:10, overflow:"hidden" }}>
+              <div style={{ background:C.dimBg, padding:"8px 14px", fontSize:12, fontWeight:700, color, borderBottom:`1px solid ${color}` }}>{label}</div>
+              <div style={{ padding:12 }}>
+                {data.slice(0,5).map((p,i)=>(
+                  <div key={p.name} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+                    <span style={{ fontSize:13, color:i<3?[C.gold,"#ccc","#cd7f32"][i]:C.gray }}>#{i+1} {p.name}</span>
+                    <span style={{ fontWeight:700, color:C.red }}>{p.pts}pts</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {standings.length===0 ? (
+        <Card><div style={{ textAlign:"center", padding:40, color:C.gray }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>🎱</div>
+          <div>No matches yet. Enter scores in the Matches tab.</div>
+        </div></Card>
+      ) : (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+            {["🥇","🥈","🥉"].map((medal,i)=>(
+              <div key={i} style={{ background:C.card, border:`2px solid ${[C.gold,"#aaa","#cd7f32"][i]}`, borderRadius:12, padding:20, textAlign:"center" }}>
+                <div style={{ fontSize:34 }}>{medal}</div>
+                {standings[i] ? (
+                  <>
+                    <div style={{ fontSize:18, fontWeight:900, color:[C.gold,"#ccc","#cd7f32"][i] }}>{standings[i].name}</div>
+                    <div style={{ fontSize:13, color:C.gray }}>{standings[i].pts} pts · {standings[i].w}W</div>
+                    <div style={{ fontSize:15, color:C.green, fontWeight:700, marginTop:6 }}>S{season} prize: {$$([1000,500,250][i])}</div>
+                  </>
+                ) : <div style={{ color:C.gray, fontSize:14, marginTop:8 }}>TBD</div>}
+              </div>
+            ))}
+          </div>
+          <Card>
+            <div style={{ display:"grid", gridTemplateColumns:"40px 1fr 50px 50px 50px 70px 80px 80px", borderBottom:`2px solid ${C.cardBorder}`, paddingBottom:8, marginBottom:4 }}>
+              {["#","Name","W","L","T","Pts","Prize","Share $"].map(h=>(
+                <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+              ))}
+            </div>
+            {standings.map((p,i)=>{
+              const sharePrice = getSharePrice(p.name, standings);
+              const pc = sharePrice===75?C.red:sharePrice===50?C.gold:sharePrice===35?C.blue:C.gray;
+              return (
+                <div key={p.name} style={{ display:"grid", gridTemplateColumns:"40px 1fr 50px 50px 50px 70px 80px 80px", padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center", background:i<3?`${[C.gold,"#aaa","#cd7f32"][i]}11`:"transparent" }}>
+                  <div style={{ textAlign:"center", fontSize:15, fontWeight:900, color:i<3?[C.gold,"#ccc","#cd7f32"][i]:C.gray }}>#{i+1}</div>
+                  <div style={{ fontSize:14, fontWeight:700 }}>{p.name}</div>
+                  <div style={{ textAlign:"center", color:C.green, fontWeight:700 }}>{p.w}</div>
+                  <div style={{ textAlign:"center", color:C.red, fontWeight:700 }}>{p.l}</div>
+                  <div style={{ textAlign:"center", color:C.gray }}>{p.t}</div>
+                  <div style={{ textAlign:"center", fontSize:15, fontWeight:900, color:C.red }}>{p.pts}</div>
+                  <div style={{ textAlign:"center", fontSize:13, color:C.gold, fontWeight:700 }}>{i<3?$$([1000,500,250][i]):"—"}</div>
+                  <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:pc }}>${sharePrice}</div>
+                </div>
+              );
+            })}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+// ─── 6-BALL ──────────────────────────────────────────────────────────────────
+function SixBallView({ sixBall, setSixBall, sixRanked }) {
+  const upd = (i,k,v) => setSixBall(bs=>bs.map((b,idx)=>idx===i?{...b,[k]:v}:b));
+  return (
+    <div>
+      <PageTitle icon="⚡" title="6-Ball Shootout" desc="One-time $30 fee — paid in Season 1. Fastest time wins." />
+      <Tip>Players only pay once in Season 1. They stay eligible through Season 2. Enter their best time in seconds.</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="🥇" title="1st Place" value="$200" color={C.gold} />
+        <BigCard icon="🥈" title="2nd Place" value="$100" color="#aaa" />
+        <BigCard icon="🥉" title="3rd Place" value="$50" color="#cd7f32" />
+      </div>
+      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
+        <div style={{ display:"grid", gridTemplateColumns:"30px 1fr 100px 140px 60px 100px", gap:8, padding:"10px 14px", background:C.dimBg }}>
+          {["#","Player","Eligible?","Best Time (sec)","Rank","Prize"].map(h=>(
+            <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+          ))}
+        </div>
+        {sixBall.map((b,i)=>{
+          const r = sixRanked.find(x=>x.id===b.id);
+          return (
+            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"30px 1fr 100px 140px 60px 100px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+              <div style={{ fontSize:12, color:C.gray, textAlign:"center" }}>{i+1}</div>
+              <input value={b.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
+              <div style={{ display:"flex", justifyContent:"center" }}>
+                <CheckBox checked={b.eligible} onChange={v=>upd(i,"eligible",v)} label={b.eligible?"✓ In":"Out"} color={C.blue} />
+              </div>
+              <input value={b.time} onChange={e=>upd(i,"time",e.target.value)} placeholder="e.g. 28.5" style={{ ...selStyle, textAlign:"center", color:C.gold, fontWeight:700 }} />
+              <div style={{ textAlign:"center", fontSize:18, fontWeight:900, color:r?[C.gold,"#aaa","#cd7f32","#666"][Math.min(r.rank-1,3)]:C.gray }}>{r?`#${r.rank}`:"—"}</div>
+              <div style={{ textAlign:"center", fontWeight:700, color:C.green, fontSize:14 }}>{r&&r.prize>0?$$(r.prize):"—"}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+// ─── SHARES ──────────────────────────────────────────────────────────────────
+function SharesView({ supporters, setSupporters, players, money, standings, playoffs, season }) {
+  const updSupp = (i,k,v) => setSupporters(ss=>ss.map((s,idx)=>idx===i?{...s,[k]:v}:s));
+  const names = players.map(p=>p.name).filter(Boolean);
+  const filled = supporters.filter(s=>s.name||s.shares>0).length;
+  const cashOut = (i) => { updSupp(i,"cashedS1",true); };
+  return (
+    <div>
+      <PageTitle icon="💰" title="Supporter Shares" desc="Fans buy shares at $25 base. Price rises as their player ranks up." />
+      {season===1 && (
+        <div style={{ background:"#1a1000", border:`2px solid ${C.gold}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.gold }}>
+          🔔 <strong>End of Season 1:</strong> Supporters can cash out now or hold for Season 2. Mark them cashed out below.
+        </div>
+      )}
+      {season===2 && (
+        <div style={{ background:"#1a0010", border:`2px solid ${C.red}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.red }}>
+          🔔 <strong>End of Season 2:</strong> All remaining shares MUST cash out after playoffs.
+        </div>
+      )}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:16 }}>
+        {[["⚪ Unranked","$25",C.gray,"Base price"],["🔵 Top 8","$35",C.blue,"Ranked #5–8"],["🟡 Top 4","$50",C.gold,"Ranked #3–4"],["🔴 Top 2","$75",C.red,"Ranked #1–2"]].map(([l,v,c,d])=>(
+          <div key={l} style={{ background:C.card, border:`2px solid ${c}`, borderRadius:8, padding:"10px 8px", textAlign:"center" }}>
+            <div style={{ fontSize:11, color:C.gray, marginBottom:2 }}>{l}</div>
+            <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
+            <div style={{ fontSize:10, color:C.gray, marginTop:2 }}>{d}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+        <BigCard icon="💸" title="Share volume collected" value={$$(money.shareVolCollected)} color={C.purple} />
+        <BigCard icon="📈" title="Current market value (active)" value={$$(money.activeMarketVal)} color={C.green} sub="what active shares worth today" />
+        <BigCard icon="💰" title="Your 15% share fee" value={$$(money.opShareFee)} color={C.gold} />
+      </div>
+      <Card title="Supporter pool splits at end of Season 2 playoffs" icon="🥧" borderColor={C.purple}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+          {[["Champion's backers","70%",money.supPool1,C.gold],["2nd place backers","20%",money.supPool2,"#aaa"],["3rd place backers","10%",money.supPool3,"#cd7f32"]].map(([lbl,pct,val,c])=>(
+            <div key={lbl} style={{ background:C.dimBg, borderRadius:8, padding:14, textAlign:"center" }}>
+              <div style={{ fontSize:22, fontWeight:900, color:c }}>{pct}</div>
+              <div style={{ fontSize:12, color:C.gray, marginBottom:6 }}>{lbl}</div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.green }}>{$$(val)}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
+        <div style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 60px 80px 80px 90px 90px 80px", gap:4, padding:"10px 10px", background:C.dimBg }}>
+          {["#","Supporter","Backing","Shares","Paid $","Mkt $","Gain","Playoff $","Status"].map(h=>(
+            <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center", lineHeight:1.3 }}>{h}</div>
+          ))}
+        </div>
+        {supporters.slice(0, Math.max(filled+4,6)).map((s,i)=>{
+          const shares     = parseInt(s.shares)||0;
+          const paidPrice  = s.pricePaid||25;
+          const mktPrice   = getSharePrice(s.player, standings);
+          const totalPaid  = shares * paidPrice;
+          const totalMkt   = shares * mktPrice;
+          const gain       = totalMkt - totalPaid;
+          const playoutPPS = getPlayoffPayout(s.player, playoffs);
+          const finalOut   = shares * playoutPPS;
+          const pc         = mktPrice===75?C.red:mktPrice===50?C.gold:mktPrice===35?C.blue:C.gray;
+          return (
+            <div key={s.id} style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 60px 80px 80px 90px 90px 80px", gap:4, padding:"8px 10px", background:s.cashedS1?"#0a1a0a":i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center", opacity:s.cashedS1?0.55:1 }}>
+              <div style={{ fontSize:11, color:C.gray, textAlign:"center" }}>{i+1}</div>
+              <input value={s.name} onChange={e=>updSupp(i,"name",e.target.value)} placeholder="Supporter…" style={{ ...textInp, fontSize:12 }} disabled={s.cashedS1} />
+              <select value={s.player} onChange={e=>{ const price = getSharePrice(e.target.value, standings); updSupp(i,"player",e.target.value); if (!s.shares || s.shares===0) updSupp(i,"pricePaid",price); }} style={{ ...selStyle, fontSize:12 }} disabled={s.cashedS1}>
+                <option value="">— pick player —</option>
+                {names.map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+              <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:3 }}>
+                <button onClick={()=>{ if(!s.cashedS1){ updSupp(i,"shares",Math.max(0,(parseInt(s.shares)||0)-1)); }}} style={{ ...btnSm, width:20, height:20, fontSize:13 }}>−</button>
+                <span style={{ minWidth:20, textAlign:"center", fontWeight:900, color:C.gold, fontSize:14 }}>{s.shares||0}</span>
+                <button onClick={()=>{ if(!s.cashedS1){ const p=getSharePrice(s.player,standings); if(!s.shares||s.shares===0) updSupp(i,"pricePaid",p); updSupp(i,"shares",Math.min(30,(parseInt(s.shares)||0)+1)); }}} style={{ ...btnSm, width:20, height:20, fontSize:13 }}>+</button>
+              </div>
+              <div style={{ textAlign:"center", fontSize:12, color:C.gray }}>{totalPaid>0?$$(totalPaid):"—"}</div>
+              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:pc }}>{totalMkt>0?$$(totalMkt):"—"}</div>
+              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:gain>0?C.green:gain<0?C.red:C.gray }}>{gain>0?`+${$$(gain)}`:gain<0?$$(gain):"—"}</div>
+              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:finalOut>0?C.purple:C.gray }}>{finalOut>0?$$(finalOut):"—"}</div>
+              <div style={{ display:"flex", justifyContent:"center" }}>
+                {s.cashedS1 ? (
+                  <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ Cashed S1</span>
+                ) : (
+                  <button onClick={()=>cashOut(i)} style={{ background:"#2a1a00", border:`1px solid ${C.gold}`, color:C.gold, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:10, fontWeight:700, fontFamily:"inherit" }}>Cash S1</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ background:"#0a0a1a", border:`2px solid ${C.purple}`, padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:14, fontWeight:700 }}>Total share volume collected:</span>
+          <span style={{ fontSize:22, fontWeight:900, color:C.purple }}>{$$(money.shareVolCollected)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+// ─── PLAYOFFS ────────────────────────────────────────────────────────────────
+function PlayoffsView({ standings, playoffs, setPlayoffs }) {
+  const upd = (i,k,v) => setPlayoffs(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
+  const seeds = standings.slice(0,8);
+  const finalMatch = playoffs.find(m=>m.round.includes("Championship"));
+  const champ = finalMatch ? getWinner(finalMatch) : null;
+  return (
+    <div>
+      <PageTitle icon="🥊" title="Playoffs — After Season 2" desc="Top 8 from Season 2 standings. Separate prize money. All shares cash out after this." />
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="🏆" title="Playoff Champion" value="$600" color={C.gold} sub="on top of any season prizes" />
+        <BigCard icon="🥈" title="Playoff Runner-Up" value="$300" color="#aaa" />
+        <BigCard icon="🥉" title="Playoff 3rd Place" value="$100" color="#cd7f32" />
+      </div>
+      <Card title="Max earnings across everything" icon="💰" borderColor={C.green}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div>
+            <MRow label="🥇 Season 1 — 1st place" value="$1,000" />
+            <MRow label="🥇 Season 2 — 1st place" value="$1,000" />
+            <MRow label="🏆 Playoff Champion"      value="$600" color={C.gold} />
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0" }}>
+              <span style={{ fontWeight:900, fontSize:15 }}>Maximum total</span>
+              <span style={{ fontWeight:900, fontSize:22, color:C.green }}>$2,600</span>
+            </div>
+          </div>
+          <div style={{ background:C.dimBg, borderRadius:8, padding:12 }}>
+            <div style={{ fontSize:12, color:C.gray, fontWeight:700, marginBottom:8 }}>SUPPORTER SHARE PAYOUTS/SHARE</div>
+            {[["🏆 Champion's backers","$100"],["🥈 Finalist backers","$60"],["🥉 Semifinal losers","$30"],["🏅 QF losers","$10"]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
+                <span>{l}</span><span style={{ color:C.purple, fontWeight:700 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+      {champ && champ!=="Tie" && (
+        <div style={{ background:"linear-gradient(135deg,#2a1800,#1a2800)", border:`3px solid ${C.gold}`, borderRadius:14, padding:24, textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:52 }}>🏆</div>
+          <div style={{ fontSize:13, color:C.gray, textTransform:"uppercase", letterSpacing:2 }}>Playoff Champion</div>
+          <div style={{ fontSize:30, fontWeight:900, color:C.gold }}>{champ}</div>
+          <div style={{ fontSize:18, color:C.green, fontWeight:700, marginTop:6 }}>Wins $600 playoff prize!</div>
+        </div>
+      )}
+      <Card title="Playoff Seeds — from Season 2 standings" icon="📋" borderColor={C.red}>
+        {seeds.length===0 ? (
+          <div style={{ color:C.gray, fontSize:13 }}>Finish Season 2 matches first. Top 8 auto-seed here.</div>
+        ) : seeds.map((p,i)=>(
+          <div key={p.name} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+            <div style={{ width:30, height:30, borderRadius:"50%", background:i<3?[C.gold,"#aaa","#cd7f32"][i]:C.dimBg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:13, color:i<3?"#000":C.gray, flexShrink:0 }}>{i+1}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:15, fontWeight:700 }}>{p.name}</div>
+              <div style={{ fontSize:12, color:C.gray }}>{p.pts} pts · {p.w}W {p.l}L</div>
+            </div>
+          </div>
+        ))}
+      </Card>
+      <div style={{ fontSize:18, fontWeight:900, marginBottom:14 }}>🥊 Bracket Results</div>
+      {playoffs.map((m,i)=>{
+        const w = getWinner(m);
+        const isFinal = m.round.includes("Championship");
+        return (
+          <div key={m.id} style={{ background:isFinal?"#1a1500":C.card, border:`2px solid ${isFinal?C.gold:w?C.green+"66":C.cardBorder}`, borderRadius:12, padding:16, marginBottom:12 }}>
+            <div style={{ fontSize:13, color:isFinal?C.gold:C.gray, fontWeight:700, marginBottom:12 }}>{m.round}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 1fr", gap:10, alignItems:"end" }}>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5 }}>Player A</div>
+                <input value={m.a} onChange={e=>upd(i,"a",e.target.value)} placeholder="Name…" style={selStyle} />
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5, textAlign:"center" }}>Score</div>
+                <input type="number" min={0} value={m.aScore} onChange={e=>upd(i,"aScore",e.target.value)} style={{ ...selStyle, textAlign:"center", fontWeight:900, fontSize:22, color:C.gold }} />
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5, textAlign:"center" }}>Score</div>
+                <input type="number" min={0} value={m.bScore} onChange={e=>upd(i,"bScore",e.target.value)} style={{ ...selStyle, textAlign:"center", fontWeight:900, fontSize:22, color:C.gold }} />
+              </div>
+              <div>
+                <div style={{ fontSize:12, color:C.gray, marginBottom:5 }}>Player B</div>
+                <input value={m.b} onChange={e=>upd(i,"b",e.target.value)} placeholder="Name…" style={selStyle} />
+              </div>
+            </div>
+            {w && (
+              <div style={{ marginTop:12, background:isFinal?"#2a2000":"#002a16", borderRadius:8, padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:22 }}>{isFinal?"🏆":"✅"}</span>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:800, color:isFinal?C.gold:C.green }}>{isFinal?`Champion: ${w}`:`Winner: ${w}`}</div>
+                  {isFinal && <div style={{ fontSize:13, color:C.green }}>Earns $600 + all supporter shares cash out now!</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// ─── MONEY ───────────────────────────────────────────────────────────────────
+function MoneyView({ money }) {
+  return (
+    <div>
+      <PageTitle icon="📊" title="Money Breakdown" desc="Both seasons combined. Updates live as you enter data." />
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="💵" title="Total revenue (S1+S2)" value={$$(money.totalBase)} color={C.blue} />
+        <BigCard icon="💰" title="Share volume collected" value={$$(money.shareVolCollected)} color={C.purple} sub={`Supporter pool: ${$$(money.supPool)}`} />
+        <BigCard icon="📈" title="Your net profit" value={$$(money.netProfit)} color={C.green} />
+        <BigCard icon="🤝" title="Each partner gets" value={$$(money.perPartner)} color={C.gold} sub="÷ 4 partners" />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        <Card title="💵 Revenue In" borderColor={C.green}>
+          <MRow label="Season 1 base revenue" value={$$(money.s1base)} />
+          <MRow label="Season 2 base revenue" value={$$(money.s2base)} />
+          <MRow label="Total base revenue" value={$$(money.totalBase)} color={C.green} big />
+          <div style={{ height:10 }} />
+          <MRow label="Share volume collected" value={$$(money.shareVolCollected)} />
+          <MRow label="Active shares market value" value={$$(money.activeMarketVal)} color={C.blue} />
+          <MRow label="Your 15% share fee" value={$$(money.opShareFee)} color={C.gold} />
+        </Card>
+        <Card title="💸 Money Out" borderColor={C.red}>
+          <MRow label="Bar cut — 5% of base rev" value={$$(money.barCut)} color={C.red} />
+          <MRow label="Bar share cut — 2% of shares" value={$$(money.barShareCut)} color={C.red} />
+          <div style={{ height:8 }} />
+          <MRow label="Season prizes × 2 seasons" value={$$(money.seasonPayouts)} />
+          <MRow label="Playoff prizes" value={$$(money.playoffPayouts)} color={C.purple} />
+          <MRow label="6-Ball prizes" value={$$(money.sixPayouts)} />
+          <MRow label="Supporter prize pool" value={$$(money.supPool)} />
+        </Card>
+      </div>
+      <Card title="🧮 Your Profit — Step by Step" borderColor={C.gold}>
+        <MRow label="Total base revenue (both seasons)" value={$$(money.totalBase)} />
+        <MRow label="– Bar cut (5%)" value={`– ${$$(money.barCut)}`} color={C.red} indent />
+        <MRow label="– Season prizes (×2)" value={`– ${$$(money.seasonPayouts)}`} color={C.red} indent />
+        <MRow label="– Playoff prizes" value={`– ${$$(money.playoffPayouts)}`} color={C.red} indent />
+        <MRow label="– 6-Ball prizes" value={`– ${$$(money.sixPayouts)}`} color={C.red} indent />
+        <MRow label="= Base Profit" value={$$(money.baseProfit)} color={C.blue} big />
+        <MRow label="+ Your 15% share fee" value={`+ ${$$(money.opShareFee)}`} color={C.green} indent />
+        <MRow label="– Bar share cut (2%)" value={`– ${$$(money.barShareCut)}`} color={C.red} indent />
+        <div style={{ background:"#001a0a", borderRadius:10, padding:"16px 20px", marginTop:14, border:`2px solid ${C.green}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700 }}>NET OPERATOR PROFIT</div>
+            <div style={{ fontSize:12, color:C.gray }}>÷ 4 partners</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:30, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+            <div style={{ fontSize:16, color:C.gold, fontWeight:700 }}>{$$(money.perPartner)} each</div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+// ─── P&L ALL STAKEHOLDERS ────────────────────────────────────────────────────
+function PnLView({ s1players, s2players, s1standings, s2standings, supporters, playoffs, sixRanked, money }) {
+  const allPlayerNames = [...new Set([
+    ...s1players.map(p=>p.name).filter(Boolean),
+    ...s2players.map(p=>p.name).filter(Boolean),
+  ])];
+  const playerRows = allPlayerNames.map(name => {
+    const s1p = s1players.find(p=>p.name===name)||{};
+    const s2p = s2players.find(p=>p.name===name)||{};
+    const s1reg   = s1p.paid ? 150 : 0;
+    const s2reg   = s2p.paid ? 150 : 0;
+    const s1weeks = (parseInt(s1p.weeksPaid)||0)*25;
+    const s2weeks = (parseInt(s2p.weeksPaid)||0)*25;
+    const sixFee  = s1p.fastTime ? 30 : 0;
+    const totalIn = s1reg + s2reg + s1weeks + s2weeks + sixFee;
+    const s1rank = s1standings.findIndex(s=>s.name===name);
+    const s2rank = s2standings.findIndex(s=>s.name===name);
+    const s1prize = s1rank===0?1000:s1rank===1?500:s1rank===2?250:0;
+    const s2prize = s2rank===0?1000:s2rank===1?500:s2rank===2?250:0;
+    const champ = playoffs.find(m=>m.round.includes("Championship"));
+    const sf1   = playoffs.find(m=>m.round.includes("Semifinal 1"));
+    const sf2   = playoffs.find(m=>m.round.includes("Semifinal 2"));
+    const cw  = champ ? getWinner(champ) : null;
+    const s1w = sf1   ? getWinner(sf1)   : null;
+    const s2w = sf2   ? getWinner(sf2)   : null;
+    let playoffPrize = 0;
+    if (cw===name) playoffPrize = 600;
+    else if (champ && (champ.a===name||champ.b===name)) playoffPrize = 300;
+    else if (s1w===name||s2w===name) playoffPrize = 100;
+    const sixEntry = sixRanked.find(r=>r.name===name);
+    const sixPrize = sixEntry ? sixEntry.prize : 0;
+    const totalOut = s1prize + s2prize + playoffPrize + sixPrize;
+    const net      = totalOut - totalIn;
+    return { name, totalIn, s1prize, s2prize, playoffPrize, sixPrize, totalOut, net, s1rank, s2rank };
+  });
+  const activeSupp = supporters.filter(s=>s.name||s.shares>0);
+  const suppRows = activeSupp.map(s => {
+    const shares     = parseInt(s.shares)||0;
+    const totalIn    = shares * (s.pricePaid||25);
+    const playoutPPS = getPlayoffPayout(s.player, playoffs);
+    const totalOut   = s.cashedS1 ? shares * (s.pricePaid||25) : shares * playoutPPS;
+    const net = totalOut - totalIn;
+    return { ...s, shares, totalIn, totalOut, net, playoutPPS };
+  });
+  const [filter, setFilter] = useState("all");
+  const sortedPlayers = [...playerRows].sort((a,b)=>b.net-a.net);
+  return (
+    <div>
+      <PageTitle icon="📋" title="P&L — Everyone" desc="Full profit & loss for every stakeholder." />
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:20 }}>
+        <div style={{ background:C.card, border:`2px solid ${C.green}`, borderRadius:10, padding:14, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>OPERATOR NET</div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+          <div style={{ fontSize:11, color:C.gray }}>{$$(money.perPartner)} / partner</div>
+        </div>
+        <div style={{ background:C.card, border:`2px solid ${C.orange}`, borderRadius:10, padding:14, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>BAR TAKE</div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.orange }}>{$$(money.totalBar)}</div>
+          <div style={{ fontSize:11, color:C.gray }}>5% base + 2% shares</div>
+        </div>
+        <div style={{ background:C.card, border:`2px solid ${C.gold}`, borderRadius:10, padding:14, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>PLAYER PRIZES PAID</div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>{$$(money.seasonPayouts + money.playoffPayouts + money.sixPayouts)}</div>
+          <div style={{ fontSize:11, color:C.gray }}>seasons + playoffs + 6-ball</div>
+        </div>
+        <div style={{ background:C.card, border:`2px solid ${C.purple}`, borderRadius:10, padding:14, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>SUPPORTER POOL</div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.purple }}>{$$(money.supPool)}</div>
+          <div style={{ fontSize:11, color:C.gray }}>from share volume</div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {[["all","All"],["players","Players"],["supporters","Supporters"],["ops","Operator / Bar"]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setFilter(id)} style={{ background:filter===id?C.red:C.card, border:`2px solid ${filter===id?C.red:C.cardBorder}`, color:C.white, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700 }}>{lbl}</button>
+        ))}
+      </div>
+      {(filter==="all"||filter==="players") && (
+        <Card title="👤 Players — Cost In vs Prizes Out" borderColor={C.gold}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 70px 80px 90px", gap:6, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+            {["Player","Cost In","S1 Prize","S2 Prize","Playoff","6-Ball","Total Out","Net P&L"].map(h=>(
+              <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+            ))}
+          </div>
+          {sortedPlayers.length===0 ? (
+            <div style={{ color:C.gray, fontSize:13, padding:"16px 0", textAlign:"center" }}>No players entered yet.</div>
+          ) : sortedPlayers.map((p, i) => {
+            const netColor = p.net > 0 ? C.green : p.net < 0 ? C.red : C.gray;
+            const netBg    = p.net > 0 ? "#002a16" : p.net < 0 ? "#2a0010" : "transparent";
+            return (
+              <div key={p.name} style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 70px 80px 90px", gap:6, padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+                <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:C.red }}>–{$$(p.totalIn)}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:p.s1prize>0?C.gold:C.gray, fontWeight:p.s1prize>0?700:400 }}>{p.s1prize>0?$$(p.s1prize):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:p.s2prize>0?C.gold:C.gray, fontWeight:p.s2prize>0?700:400 }}>{p.s2prize>0?$$(p.s2prize):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:p.playoffPrize>0?C.purple:C.gray, fontWeight:p.playoffPrize>0?700:400 }}>{p.playoffPrize>0?$$(p.playoffPrize):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:p.sixPrize>0?C.blue:C.gray, fontWeight:p.sixPrize>0?700:400 }}>{p.sixPrize>0?$$(p.sixPrize):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.green }}>{p.totalOut>0?$$(p.totalOut):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:netColor, background:netBg, borderRadius:6, padding:"3px 6px" }}>
+                  {p.net>0?`+${$$(p.net)}`:p.net<0?$$(p.net):"$0"}
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+      {(filter==="all"||filter==="supporters") && (
+        <Card title="💰 Supporters — Investment vs Payout" borderColor={C.purple}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 80px 70px 80px 80px 90px 90px", gap:6, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+            {["Supporter","Backing","Shares","Paid In","$/Share Out","Total Out","Net P&L"].map(h=>(
+              <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+            ))}
+          </div>
+          {suppRows.length===0 ? (
+            <div style={{ color:C.gray, fontSize:13, padding:"16px 0", textAlign:"center" }}>No supporters entered yet.</div>
+          ) : suppRows.map((s, i) => {
+            const netColor = s.net > 0 ? C.green : s.net < 0 ? C.red : C.gray;
+            const netBg    = s.net > 0 ? "#002a16" : s.net < 0 ? "#2a0010" : "transparent";
+            return (
+              <div key={s.id} style={{ display:"grid", gridTemplateColumns:"1fr 80px 70px 80px 80px 90px 90px", gap:6, padding:"9px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center", opacity:s.cashedS1?0.7:1 }}>
+                <div style={{ fontWeight:700, fontSize:13 }}>{s.name||`Supporter ${s.id}`}{s.cashedS1 && <span style={{ fontSize:10, color:C.green, marginLeft:6 }}>✓ Cashed S1</span>}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:C.blue }}>{s.player||"—"}</div>
+                <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.gold }}>{s.shares}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:C.red }}>–{$$(s.totalIn)}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:s.playoutPPS>0?C.purple:C.gray, fontWeight:700 }}>{s.cashedS1 ? `$${s.pricePaid||25}` : s.playoutPPS>0 ? `$${s.playoutPPS}` : "TBD"}</div>
+                <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.green }}>{s.totalOut>0?$$(s.totalOut):"TBD"}</div>
+                <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:netColor, background:netBg, borderRadius:6, padding:"3px 6px" }}>
+                  {s.cashedS1 ? (s.net===0?"$0":s.net>0?`+${$$(s.net)}`:$$(s.net)) : s.playoutPPS>0 ? (s.net>0?`+${$$(s.net)}`:$$(s.net)) : "TBD"}
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+      {(filter==="all"||filter==="ops") && (
+        <Card title="⚡ Operator & Bar" borderColor={C.green}>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.green, marginBottom:10, paddingBottom:6, borderBottom:`1px solid ${C.cardBorder}` }}>⚡ Operator (4 Partners)</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10 }}>
+              <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>REVENUE IN</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.blue }}>{$$(money.totalBase)}</div>
+              </div>
+              <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>SHARE FEE (15%)</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.gold }}>{$$(money.opShareFee)}</div>
+              </div>
+              <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>COSTS OUT</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.red }}>–{$$(money.barCut + money.seasonPayouts + money.playoffPayouts + money.sixPayouts + money.barShareCut)}</div>
+              </div>
+              <div style={{ background:"#001a0a", borderRadius:8, padding:12, textAlign:"center", border:`2px solid ${C.green}` }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>NET PROFIT</div>
+                <div style={{ fontSize:20, fontWeight:900, color:C.green }}>{$$(money.netProfit)}</div>
+                <div style={{ fontSize:12, color:C.gold, fontWeight:700 }}>{$$(money.perPartner)} each</div>
+              </div>
+            </div>
+          </div>
+          <div style={{ borderTop:`2px solid ${C.cardBorder}`, paddingTop:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.orange, marginBottom:10 }}>🍺 Bar</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+              <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>5% OF BASE REV</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.orange }}>{$$(money.barCut)}</div>
+              </div>
+              <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>2% OF SHARES</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.orange }}>{$$(money.barShareCut)}</div>
+              </div>
+              <div style={{ background:"#1a0d00", borderRadius:8, padding:12, textAlign:"center", border:`2px solid ${C.orange}` }}>
+                <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>TOTAL BAR TAKE</div>
+                <div style={{ fontSize:20, fontWeight:900, color:C.orange }}>{$$(money.totalBar)}</div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+// ─── PLAYER BOARD ─────────────────────────────────────────────────────────────
+function PlayerBoardView({ standings, s1standings, s2standings, playoffs, supporters, sixRanked, season }) {
+  const finalMatch = playoffs.find(m=>m.round.includes("Championship"));
+  const champ = finalMatch ? getWinner(finalMatch) : null;
+  return (
+    <div>
+      <div style={{ background:"linear-gradient(135deg,#0a0a1a,#16162a)", border:`2px solid ${C.red}`, borderRadius:14, padding:"24px 20px", textAlign:"center", marginBottom:24 }}>
+        <div style={{ fontSize:11, color:C.red, letterSpacing:4, textTransform:"uppercase", fontWeight:700, marginBottom:4 }}>Action Ladder</div>
+        <div style={{ fontSize:30, fontWeight:900, color:C.white }}>🎱 BilliardsMarketLadder</div>
+        <div style={{ fontSize:14, color:C.gray, marginTop:4 }}>Live Standings · Share Prices · Prize Board</div>
+        <div style={{ marginTop:10, display:"inline-block", background:season===1?C.gold+"22":C.purple+"22", border:`1px solid ${season===1?C.gold:C.purple}`, borderRadius:6, padding:"4px 14px", fontSize:13, color:season===1?C.gold:C.purple, fontWeight:700 }}>
+          Currently: Season {season}
+        </div>
+      </div>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontSize:13, color:C.gray, fontWeight:700, letterSpacing:2, textTransform:"uppercase", marginBottom:10 }}>💰 Share Prices Right Now</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+          {[["🔴 Top 2","$75",C.red],["🟡 Top 4","$50",C.gold],["🔵 Top 8","$35",C.blue],["⚪ Others","$25",C.gray]].map(([l,v,c])=>(
+            <div key={l} style={{ background:C.card, border:`1px solid ${c}`, borderRadius:8, padding:"10px 8px", textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.gray }}>{l}</div>
+              <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontSize:13, color:C.gray, fontWeight:700, letterSpacing:2, textTransform:"uppercase", marginBottom:10 }}>🏆 Season {season} Standings</div>
+        {standings.length===0 ? (
+          <div style={{ background:C.card, borderRadius:10, padding:24, textAlign:"center", color:C.gray }}>No matches played yet.</div>
+        ) : (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:12 }}>
+              {[0,1,2].map(i=>standings[i]?(
+                <div key={i} style={{ background:C.card, border:`2px solid ${[C.gold,"#aaa","#cd7f32"][i]}`, borderRadius:12, padding:"16px 12px", textAlign:"center" }}>
+                  <div style={{ fontSize:30 }}>{["🥇","🥈","🥉"][i]}</div>
+                  <div style={{ fontSize:18, fontWeight:900, color:[C.gold,"#ccc","#cd7f32"][i], margin:"6px 0" }}>{standings[i].name}</div>
+                  <div style={{ fontSize:13, color:C.gray }}>{standings[i].pts} pts</div>
+                  <div style={{ marginTop:8, fontSize:11, color:C.gray }}>Season prize</div>
+                  <div style={{ fontSize:15, fontWeight:700, color:C.green }}>{$$([1000,500,250][i])}</div>
+                  <div style={{ marginTop:6, fontWeight:900, color:[C.red,C.gold,C.blue][i]||C.gray, fontSize:14 }}>
+                    Shares: ${getSharePrice(standings[i].name,standings)}/each
+                  </div>
+                </div>
+              ):(
+                <div key={i} style={{ background:C.card, border:`2px solid ${C.cardBorder}`, borderRadius:12, padding:16, textAlign:"center", color:C.gray }}>{["🥇","🥈","🥉"][i]}<br/>TBD</div>
+              ))}
+            </div>
+            <div style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:10, overflow:"hidden" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"38px 1fr 40px 40px 50px 70px 80px", padding:"8px 14px", background:C.dimBg, borderBottom:`1px solid ${C.cardBorder}` }}>
+                {["#","Player","W","L","Pts","S Prize","Share $"].map(h=>(
+                  <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+                ))}
+              </div>
+              {standings.map((p,i)=>{
+                const sp = getSharePrice(p.name,standings);
+                const pc = sp===75?C.red:sp===50?C.gold:sp===35?C.blue:C.gray;
+                return (
+                  <div key={p.name} style={{ display:"grid", gridTemplateColumns:"38px 1fr 40px 40px 50px 70px 80px", padding:"10px 14px", borderBottom:`1px solid ${C.cardBorder}`, background:i<3?`${[C.gold,"#aaa","#cd7f32"][i]}11`:"transparent", alignItems:"center" }}>
+                    <div style={{ textAlign:"center", fontWeight:900, fontSize:14, color:i<3?[C.gold,"#ccc","#cd7f32"][i]:C.gray }}>#{i+1}</div>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{p.name}</div>
+                    <div style={{ textAlign:"center", color:C.green, fontWeight:700 }}>{p.w}</div>
+                    <div style={{ textAlign:"center", color:C.red, fontWeight:700 }}>{p.l}</div>
+                    <div style={{ textAlign:"center", fontWeight:900, color:C.red }}>{p.pts}</div>
+                    <div style={{ textAlign:"center", color:C.gold, fontWeight:700, fontSize:13 }}>{i<3?$$([1000,500,250][i]):"—"}</div>
+                    <div style={{ textAlign:"center", fontWeight:900, color:pc, fontSize:15 }}>${sp}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:10, padding:16 }}>
+        <div style={{ fontSize:13, color:C.gray, fontWeight:700, letterSpacing:2, textTransform:"uppercase", marginBottom:12 }}>💵 Full Prize Board</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <div>
+            <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:8 }}>📅 EACH SEASON</div>
+            {[["🥇 1st","$1,000"],["🥈 2nd","$500"],["🥉 3rd","$250"],["🏅 MVP","$150"]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
+                <span>{l}</span><span style={{ color:C.gold, fontWeight:700 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:C.purple, fontWeight:700, marginBottom:8 }}>🥊 PLAYOFFS (AFTER S2)</div>
+            {[["🏆 Champion","$600"],["🥈 Runner-Up","$300"],["🥉 3rd Place","$100"]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
+                <span>{l}</span><span style={{ color:C.purple, fontWeight:700 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:C.blue, fontWeight:700, marginBottom:8 }}>⚡ 6-BALL</div>
+            {[["1st","$200"],["2nd","$100"],["3rd","$50"]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
+                <span>⚡ {l}</span><span style={{ color:C.blue, fontWeight:700 }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ fontSize:11, color:C.purple, fontWeight:700, marginTop:10, marginBottom:6 }}>💰 SHARES PAYOUT/SHARE</div>
+            {[["Champion","$100"],["Finalist","$60"],["Semifinal","$30"],["Quarterfinal","$10"]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:12 }}>
+                <span>{l}</span><span style={{ color:C.purple, fontWeight:700 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop:12, background:"#001a10", borderRadius:8, padding:"12px 16px", fontSize:14, color:C.green, fontWeight:700, textAlign:"center" }}>
+          🏆 Max a player can win across both seasons: $2,600
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
