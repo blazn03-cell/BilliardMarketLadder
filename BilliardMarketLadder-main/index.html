@@ -1,3 +1,7 @@
+https://raw.githubusercontent.com/blazn03-cell/BilliardMarketLadder/main/BilliardMarketLadder-main/index.html
+→ https://raw.githubusercontent.com/blazn03-cell/BilliardMarketLadder/main/BilliardMarketLadder-main/index.html
+Content-Type: text/plain; charset=utf-8
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,7 +27,7 @@
 const { useState, useMemo, useEffect } = React;
 
 // ─── PERSISTENCE ──────────────────────────────────────────────────────────────
-const SAVE_KEY = "bml_dashboard_v1";
+const SAVE_KEY = "bml_dashboard_v5";
 const saveState = (state) => {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
 };
@@ -42,16 +46,66 @@ const C = {
 };
 const PLAYER_COUNT = 16;
 const WEEK_COUNT   = 8;
-const SEASON_PRIZES  = { p1: 1000, p2: 500, p3: 250, mvp: 150 };
-const PLAYOFF_PRIZES = { p1: 600, p2: 300, p3: 100 };
-const SIX_PRIZES     = { p1: 200, p2: 100, p3: 50 };
-const getSharePrice = (playerName, standings) => {
+// ── Season Prizes (S1 lower, S2 bigger, S3 playoffs biggest) ──
+const S1_PRIZES = { p1:750, p2:350, p3:150, mvp:75 };
+const S2_PRIZES = { p1:1500, p2:700, p3:300, mvp:150 };
+const S3_PRIZES = { p1:3000, p2:1500, p3:500, mvp:250 };
+const SEASON_PRIZES  = S1_PRIZES; // kept for legacy references
+const PLAYOFF_PRIZES = S3_PRIZES; // S3 IS the playoff season
+const PARTICIPATION_PRIZES = [900,650,450,250,50,50,50,50,50,50,50,50,50,50,50,50]; // Top 4 earn most; everyone else $50 flat
+const PLAYER_SHARE_CUT = 0.20;
+// ── Share limits (updated) ──
+const SHARE_CAP_PER_PLAYER   = 50;   // max shares sold per player total
+const PLAYER_SELF_BUY_MAX    = 6;    // player can buy max 6 of their own shares
+const SUPPORTER_BUY_MAX      = 5;    // supporters: max 5 per price change
+const PLAYER_SELF_BUY_PRICE  = 25;   // first-dibs discount price for self-buy
+const SHARE_MIN_PRICE        = 10;   // absolute price floor (can drop to $10 with losses)
+const SHARE_MAX_PRICE        = 150;  // ceiling: max $150 even for #1
+const SHARE_FIRST_BUY_PRICE  = 35;   // unranked starting/first-buy price
+// ── Team Format Constants ──
+const TEAM_SHARE_START    = 45;    // team player first-buy share price
+const TEAM_SHARE_FLOOR    = 10;    // same floor as singles
+const DOUBLES_SHARE_CEIL  = 200;   // doubles: shares top out at $200
+const TRIPLES_SHARE_CEIL  = 250;   // triples: shares top out at $250
+const TEAM_REG_PER_PERSON = 150;   // registration per person (doubles & triples)
+const DOUBLES_PRIZES = { p1:800,  p2:400,  p3:200 };
+const TRIPLES_PRIZES = { p1:1200, p2:600,  p3:300 };
+const SALVAGE_CASH           = 5;
+const SALVAGE_DISCOUNT       = 10;
+// ── Season & Game Volatility ──
+const SEASON_VOL = [1.0, 1.5, 2.5];  // S1, S2, S3 — progressively more volatile
+const GAME_VOL   = { 'straight8':1.13, 'bca8':1.33, '9ball':1.63, '10ball':1.93 };
+const GAME_LABELS = { 'straight8':'Straight 8-Ball', 'bca8':'8-Ball (BCA Rules)', '9ball':'9-Ball', '10ball':'10-Ball' };
+const OFF_SCHEDULE_FACTOR = 0.5; // off-schedule matches move price half as much
+// ── Registration Fees per Season ──
+const S1_REG = 150; const S2_REG = 175; const S3_REG = 200;
+const S3_REG_FREE = 0;   // 1st place from S1 or S2 enters S3 FREE
+const S3_REG_HALF = 100; // 2nd place from S1 or S2 pays half ($100)
+const WEEK_FEE   = 25;
+const BAR_REG_CUT   = 0.10; // bar owner gets 10% of reg fees from their players
+const BAR_SHARE_CUT = 0.03; // bar owner gets 3% of share trading volume at their bar
+const OP_SHARE_FEE  = 0.15; // operator takes 15% of all share trading
+const INHOUSE_WEEKLY_FEE       = 25;   // per league per week
+const INHOUSE_WEEKLY_BUNDLE    = 65;   // all 3 leagues/wk (vs $75, save $10)
+const INHOUSE_REG_FEE          = 150;  // registration per league
+const INHOUSE_REG_BUNDLE       = 400;  // all 3 leagues (vs $450, save $50)
+const INHOUSE_STOCK_BUMPS      = [0, 10, 20, 35];   // extra $/share per leagues joined
+const INHOUSE_VOL_SCALE        = [1, 1.2, 1.5, 2];  // exhibition volatility multiplier
+const EXHB_WIN_BUMP            = 5;   // +$5/share per exhibition win
+const EXHB_LOSS_BUMP           = 3;   // –$3/share per exhibition loss
+const EXHB_MAX                 = 20;  // cap ±$20 fluctuation from exhibitions
+const getSharePrice = (playerName, standings, players) => {
   const rank = standings.findIndex(s => s.name === playerName);
-  if (rank < 0)  return 25;
-  if (rank < 2)  return 75;
-  if (rank < 4)  return 50;
-  if (rank < 8)  return 35;
-  return 25;
+  let base = 30;
+  if (rank === 0) base = 200;
+  else if (rank === 1) base = 150;
+  else if (rank < 4)  base = 100;
+  else if (rank < 8)  base = 60;
+  else if (rank >= 0) base = 30;
+  // Exhibition bump: wins +$5, losses –$3, capped ±$20
+  const p = players && players.find(x=>x.name===playerName);
+  const bump = p ? Math.max(-EXHB_MAX, Math.min(EXHB_MAX, (p.exhibWins||0)*EXHB_WIN_BUMP - (p.exhibLosses||0)*EXHB_LOSS_BUMP)) : 0;
+  return Math.max(15, base + bump);
 };
 const getPlayoffPayout = (playerName, playoffs) => {
   if (!playerName) return 0;
@@ -70,25 +124,35 @@ const getPlayoffPayout = (playerName, playoffs) => {
 };
 const defaultPlayers = () =>
   Array.from({ length: PLAYER_COUNT }, (_, i) => ({
-    id: i+1, name: "", paid: false, weeksPaid: 0, fastTime: false,
+    id: i+1, name: "", paid: false, weeksPaid: 0, s2paid: false, s2weeksPaid: 0, s3paid: false, s3weeksPaid: 0,
+    exhibWins: 0, exhibLosses: 0, preferredGame: "straight8",
+    inLeague1: false, inLeague2: false, inLeague3: false,
+    inLeagueRegPaid: false, inLeagueWeeksPaid: 0,
+    barId: null, s1Alumni: false, s2Alumni: false, s3RegStatus: "full",
   }));
 const defaultMatches = (weekOffset = 0) => {
   const out = []; let id = 1 + weekOffset * (PLAYER_COUNT/2);
   for (let w = 1; w <= WEEK_COUNT; w++)
     for (let m = 0; m < PLAYER_COUNT/2; m++)
-      out.push({ id: id++, week: w, a:"", b:"", aScore:"", bScore:"" });
+      out.push({ id: id++, week: w, a:"", b:"", aScore:"", bScore:"", gameType:"straight8", isOffSchedule:false });
   return out;
 };
 const defaultSupporters = () =>
-  Array.from({ length: 40 }, (_, i) => ({
+  Array.from({ length: 80 }, (_, i) => ({
     id: i+1, name:"", player:"", shares:0,
-    pricePaid: 25,
+    pricePaid: 30,
     cashedS1: false,
+    lockedUntilMove: false,
+    selfBuy: false,
+    salvaged: false,
+    salvageType: null,
   }));
-const default6Ball = () =>
-  Array.from({ length: PLAYER_COUNT }, (_, i) => ({
-    id: i+1, name:"", time:"", eligible: false,
-  }));
+const defaultLeagueNames = () => ["", "", ""];
+const defaultBars = () => [
+  { id:1, name:"", ownerName:"", barShares:0, barSharesPaid:false },
+  { id:2, name:"", ownerName:"", barShares:0, barSharesPaid:false },
+  { id:3, name:"", ownerName:"", barShares:0, barSharesPaid:false },
+];
 const defaultPlayoffs = () => [
   { id:1, round:"Quarterfinal 1",  a:"", b:"", aScore:"", bScore:"" },
   { id:2, round:"Quarterfinal 2",  a:"", b:"", aScore:"", bScore:"" },
@@ -138,95 +202,154 @@ function App() {
   const [s1matches, setS1Matches]   = useState(saved?.s1matches   ?? defaultMatches(0));
   const [s2players, setS2Players]   = useState(saved?.s2players   ?? defaultPlayers());
   const [s2matches, setS2Matches]   = useState(saved?.s2matches   ?? defaultMatches(PLAYER_COUNT/2 * WEEK_COUNT));
+  const [s3players, setS3Players]   = useState(saved?.s3players   ?? defaultPlayers());
+  const [s3matches, setS3Matches]   = useState(saved?.s3matches   ?? defaultMatches(PLAYER_COUNT/2 * WEEK_COUNT * 2));
   const [supporters, setSupporters] = useState(saved?.supporters  ?? defaultSupporters());
-  const [sixBall, setSixBall]       = useState(saved?.sixBall     ?? default6Ball());
+  const [doublesTeams, setDoublesTeams] = useState(saved?.doublesTeams ?? []);
+  const [triplesTeams, setTriplesTeams] = useState(saved?.triplesTeams ?? []);
+  const [leagueNames, setLeagueNames] = useState(saved?.leagueNames ?? defaultLeagueNames());
+  const [bars, setBars]             = useState(saved?.bars         ?? defaultBars());
   const [playoffs, setPlayoffs]     = useState(saved?.playoffs    ?? defaultPlayoffs());
   const [lastSaved, setLastSaved]   = useState(null);
 
   // Auto-save whenever any data changes
   useEffect(() => {
-    saveState({ season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs });
+    saveState({ season, s1players, s1matches, s2players, s2matches, s3players, s3matches, supporters, leagueNames, bars, playoffs, doublesTeams, triplesTeams });
     setLastSaved(new Date().toLocaleTimeString());
-  }, [season, s1players, s1matches, s2players, s2matches, supporters, sixBall, playoffs]);
+  }, [season, s1players, s1matches, s2players, s2matches, s3players, s3matches, supporters, leagueNames, bars, playoffs, doublesTeams, triplesTeams]);
 
   const resetAll = () => {
     if (!confirm("Reset ALL data? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
     setSeason(1); setS1Players(defaultPlayers()); setS1Matches(defaultMatches(0));
     setS2Players(defaultPlayers()); setS2Matches(defaultMatches(PLAYER_COUNT/2*WEEK_COUNT));
-    setSupporters(defaultSupporters()); setSixBall(default6Ball()); setPlayoffs(defaultPlayoffs());
+    setSupporters(defaultSupporters()); setLeagueNames(defaultLeagueNames()); setBars(defaultBars()); setPlayoffs(defaultPlayoffs());
+    setS3Players(defaultPlayers()); setS3Matches(defaultMatches(PLAYER_COUNT/2*WEEK_COUNT*2));
   };
-  const players    = season===1 ? s1players : s2players;
-  const matches    = season===1 ? s1matches : s2matches;
-  const setPlayers = season===1 ? setS1Players : setS2Players;
-  const setMatches = season===1 ? setS1Matches : setS2Matches;
+  const players    = season===1 ? s1players : season===2 ? s2players : s3players;
+  const matches    = season===1 ? s1matches : season===2 ? s2matches : s3matches;
+  const setPlayers = season===1 ? setS1Players : season===2 ? setS2Players : setS3Players;
+  const setMatches = season===1 ? setS1Matches : season===2 ? setS2Matches : setS3Matches;
   const s1standings = useMemo(() => calcStandings(s1players, s1matches), [s1players, s1matches]);
   const s2standings = useMemo(() => calcStandings(s2players, s2matches), [s2players, s2matches]);
-  const standings   = season===1 ? s1standings : s2standings;
-  const sixRanked = useMemo(() =>
-    [...sixBall]
-      .filter(b => b.eligible && b.time!=="" && !isNaN(parseFloat(b.time)))
-      .sort((a,b) => parseFloat(a.time)-parseFloat(b.time))
-      .map((b,i) => ({ ...b, rank:i+1, prize:[SIX_PRIZES.p1,SIX_PRIZES.p2,SIX_PRIZES.p3][i]||0 })),
-  [sixBall]);
+  const s3standings = useMemo(() => calcStandings(s3players, s3matches), [s3players, s3matches]);
+  const standings   = season===1 ? s1standings : season===2 ? s2standings : s3standings;
+  const inHouseRevenue = useMemo(() => {
+    const calcRev = (p) => {
+      const cnt = [p.inLeague1,p.inLeague2,p.inLeague3].filter(Boolean).length;
+      if (!cnt) return 0;
+      const reg = p.inLeagueRegPaid ? (cnt===3?INHOUSE_REG_BUNDLE:cnt*INHOUSE_REG_FEE) : 0;
+      const wkly = cnt===3?INHOUSE_WEEKLY_BUNDLE:cnt*INHOUSE_WEEKLY_FEE;
+      return reg + (parseInt(p.inLeagueWeeksPaid)||0)*wkly;
+    };
+    return [...s1players, ...s2players, ...s3players].reduce((s,p)=>s+calcRev(p), 0);
+  }, [s1players, s2players, s3players]);
   const money = useMemo(() => {
-    const s1reg  = s1players.filter(p=>p.paid).length * 150;
-    const s1week = s1players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
-    const s1fast = s1players.filter(p=>p.fastTime).length * 30;
-    const s1base = s1reg + s1week + s1fast;
-    const s2reg  = s2players.filter(p=>p.paid).length * 150;
-    const s2week = s2players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
+    const s1reg  = s1players.filter(p=>p.paid).length * S1_REG;
+    const s1week = s1players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*WEEK_FEE,0);
+    const s1base = s1reg + s1week;
+    const s2reg  = s2players.filter(p=>p.paid).length * S2_REG;
+    const s2week = s2players.reduce((s,p)=>s+(parseInt(p.s2weeksPaid)||p.weeksPaid||0)*WEEK_FEE,0);
     const s2base = s2reg + s2week;
-    const totalBase = s1base + s2base;
-    const barCut    = Math.round(totalBase * 0.05);
+    // S3 (playoff season): 1st from S1&S2 free, 2nd half price, rest full $200
+    const s1_1st = s1standings[0]?.name; const s1_2nd = s1standings[1]?.name;
+    const s2_1st = s2standings[0]?.name; const s2_2nd = s2standings[1]?.name;
+    const s3reg  = s3players.filter(p=>p.name&&p.s3paid).reduce((s,p)=>{
+      const nm=p.name;
+      if(nm===s1_1st||nm===s2_1st) return s+S3_REG_FREE;
+      if(nm===s1_2nd||nm===s2_2nd) return s+S3_REG_HALF;
+      return s+S3_REG;
+    },0);
+    const s3week = s3players.reduce((s,p)=>s+(parseInt(p.s3weeksPaid)||0)*WEEK_FEE,0);
+    const s3base = s3reg + s3week;
+    const totalBase = s1base + s2base + s3base;
+    // Bar reg cut (10% of reg from their players, tracked by barId)
+    const barCut    = Math.round((s1reg+s2reg+s3reg) * BAR_REG_CUT);
     const activeSupp  = supporters.filter(s => !s.cashedS1);
     const cashedSupp  = supporters.filter(s => s.cashedS1);
     const shareVolCollected = supporters.reduce((s,x) =>
       s + (parseInt(x.shares)||0) * x.pricePaid, 0);
     const activeMarketVal = activeSupp.reduce((s,x) => {
-      const mktPrice = getSharePrice(x.player, s2standings);
+      const mktPrice = getSharePrice(x.player, s2standings, s2players);
       return s + (parseInt(x.shares)||0) * mktPrice;
     },0);
     const s1cashoutTotal = cashedSupp.reduce((s,x)=> s+(parseInt(x.shares)||0)*x.pricePaid,0);
     const opShareFee  = Math.round(shareVolCollected * 0.15);
     const barShareCut = Math.round(shareVolCollected * 0.02);
     const supPool     = shareVolCollected - opShareFee - barShareCut;
-    const seasonPayouts  = (SEASON_PRIZES.p1+SEASON_PRIZES.p2+SEASON_PRIZES.p3+SEASON_PRIZES.mvp)*2;
-    const playoffPayouts = PLAYOFF_PRIZES.p1+PLAYOFF_PRIZES.p2+PLAYOFF_PRIZES.p3;
-    const sixPayouts     = SIX_PRIZES.p1+SIX_PRIZES.p2+SIX_PRIZES.p3;
-    const baseProfit = totalBase - barCut - seasonPayouts - playoffPayouts - sixPayouts;
-    const netProfit  = baseProfit + opShareFee - barShareCut;
+    const s1PayoutTotal = S1_PRIZES.p1+S1_PRIZES.p2+S1_PRIZES.p3+S1_PRIZES.mvp;
+    const s2PayoutTotal = S2_PRIZES.p1+S2_PRIZES.p2+S2_PRIZES.p3+S2_PRIZES.mvp;
+    const s3PayoutTotal = S3_PRIZES.p1+S3_PRIZES.p2+S3_PRIZES.p3+S3_PRIZES.mvp;
+    const seasonPayouts  = s1PayoutTotal + s2PayoutTotal + s3PayoutTotal;
+    const playoffPayouts = 0; // S3 is the playoff season, already in seasonPayouts
+    const participationPayouts = PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0) * 3; // all 3 seasons
+    // playerShareCuts: 20% of each player's backers' payout, from op fee
+    const getPlayoffPayoutForPlayer = (name) => {
+      const champ = playoffs.find(m=>m.round.includes("Championship"));
+      const sf1   = playoffs.find(m=>m.round.includes("Semifinal 1"));
+      const sf2   = playoffs.find(m=>m.round.includes("Semifinal 2"));
+      const cw = champ ? getWinner(champ) : null;
+      const s1w = sf1 ? getWinner(sf1) : null;
+      const s2w = sf2 ? getWinner(sf2) : null;
+      if (cw===name) return PLAYOFF_PRIZES.p1;
+      if (champ && (champ.a===name||champ.b===name)) return PLAYOFF_PRIZES.p2;
+      if (s1w===name||s2w===name) return PLAYOFF_PRIZES.p3;
+      return 0;
+    };
+    const playerShareCuts = s3standings.reduce((total, p, i) => {
+      const backerPayout = i===0 ? Math.round(supPool*0.70) : i===1 ? Math.round(supPool*0.20) : i===2 ? Math.round(supPool*0.10) : 0;
+      return total + Math.round(backerPayout * PLAYER_SHARE_CUT);
+    }, 0);
+    const baseProfit = totalBase + inHouseRevenue - barCut - seasonPayouts - playoffPayouts - participationPayouts;
+    const salvageCashOut = supporters.reduce((s,x)=>
+      x.salvaged && x.salvageType==='cash' ? s + (parseInt(x.shares)||0)*SALVAGE_CASH : s, 0);
+    const doublesReg = doublesTeams.reduce((s,t)=>s+(t.paid?2*TEAM_REG_PER_PERSON:0),0);
+    const triplesReg = triplesTeams.reduce((s,t)=>s+(t.paid?3*TEAM_REG_PER_PERSON:0),0);
+    const teamRevenue = doublesReg + triplesReg;
+    const doublesPrizePool = doublesTeams.length>=3 ? DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3 : doublesTeams.length>=2 ? DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2 : doublesTeams.length===1 ? DOUBLES_PRIZES.p1 : 0;
+    const triplesPrizePool = triplesTeams.length>=3 ? TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3 : triplesTeams.length>=2 ? TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2 : triplesTeams.length===1 ? TRIPLES_PRIZES.p1 : 0;
+    const teamPrizes = doublesPrizePool + triplesPrizePool;
+    const netProfit  = baseProfit + opShareFee - barShareCut - playerShareCuts - salvageCashOut + teamRevenue - teamPrizes;
     const perPartner = netProfit / 4;
     return {
-      s1base, s2base, totalBase, barCut,
+      s1base, s2base, s3base, totalBase, barCut,
       shareVolCollected, activeMarketVal, s1cashoutTotal,
       opShareFee, barShareCut, supPool,
       supPool1: Math.round(supPool*0.70),
       supPool2: Math.round(supPool*0.20),
       supPool3: Math.round(supPool*0.10),
-      seasonPayouts, playoffPayouts, sixPayouts,
+      seasonPayouts, playoffPayouts, participationPayouts, playerShareCuts, salvageCashOut, inHouseRevenue,
       baseProfit, netProfit, perPartner,
       totalBar: barCut+barShareCut,
+      teamRevenue, teamPrizes, doublesReg, triplesReg, doublesPrizePool, triplesPrizePool,
     };
-  }, [s1players, s2players, supporters, s2standings]);
+  }, [s1players, s2players, s3players, supporters, s1standings, s2standings, s3standings, inHouseRevenue, doublesTeams, triplesTeams]);
   const TABS = [
     { id:"home",        icon:"🏠", label:"Home" },
     { id:"players",     icon:"👤", label:"Players" },
     { id:"matches",     icon:"🎱", label:"Matches" },
+    { id:"inhouse",     icon:"🏟", label:"Leagues" },
     { id:"standings",   icon:"🏆", label:"Standings" },
-    { id:"sixball",     icon:"⚡",  label:"6-Ball" },
     { id:"shares",      icon:"💰", label:"Shares" },
     { id:"playoffs",    icon:"🥊", label:"Playoffs" },
+    { id:"teams",       icon:"👥", label:"Teams" },
+    { id:"bars",        icon:"🏪", label:"Bar Tabs" },
+    { id:"rules",       icon:"📖", label:"Rules" },
+    { id:"manual",      icon:"📗", label:"Manual" },
+    { id:"participation", icon:"🎱", label:"Participation" },
     { id:"money",       icon:"📊", label:"Money" },
     { id:"pnl",         icon:"📋", label:"P&L All" },
     { id:"playerboard", icon:"📺", label:"Player View" },
   ];
   const views = {
     players, setPlayers, matches, setMatches,
-    supporters, setSupporters, sixBall, setSixBall,
-    playoffs, setPlayoffs, standings, sixRanked, money,
-    s1standings, s2standings, season, setSeason, setTab,
-    s1players, s2players, s1matches, s2matches,
+    supporters, setSupporters,
+    leagueNames, setLeagueNames,
+    bars, setBars,
+    playoffs, setPlayoffs, standings, money,
+    s1standings, s2standings, s3standings, season, setSeason, setTab,
+    s1players, s2players, s3players, s1matches, s2matches, s3matches,
+    setS1Players, setS2Players, setS3Players,
   };
   return (
     <div style={{ fontFamily:"'Segoe UI',Arial,sans-serif", background:C.bg, minHeight:"100vh", color:C.white }}>
@@ -249,16 +372,16 @@ function App() {
       </div>
       <div style={{ background:"#0a0a18", borderBottom:`1px solid ${C.cardBorder}`, padding:"8px 20px", display:"flex", alignItems:"center", gap:10 }}>
         <span style={{ fontSize:12, color:C.gray, marginRight:4 }}>Active Season:</span>
-        {[1,2].map(s => (
+        {[1,2,3].map(s => (
           <button key={s} onClick={() => setSeason(s)} style={{
             background: season===s ? C.red : C.card,
             border:`2px solid ${season===s ? C.red : C.cardBorder}`,
             color:C.white, borderRadius:8, padding:"5px 18px",
             cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700,
-          }}>Season {s}</button>
+          }}>Season {s}{s===3?' 🏆':''}</button>
         ))}
         <span style={{ fontSize:11, color:C.gray, marginLeft:8 }}>
-          {season===1 ? "🟡 Season 1 running — supporters can hold or cash out at end" : "🟢 Season 2 running — all shares cash out after playoffs"}
+          {season===1 ? "🟡 S1 — vol ×1.0 · lower prizes · S1 players get S2/S3 priority" : season===2 ? "🟢 S2 — vol ×1.5 · bigger prizes · S1 alumni get priority sign-up" : "🔴 S3 PLAYOFFS — vol ×2.5 · biggest prizes · top S1+S2 players compete"}
         </span>
       </div>
       <div style={{ display:"flex", overflowX:"auto", background:C.dimBg, borderBottom:`1px solid ${C.cardBorder}` }}>
@@ -280,17 +403,222 @@ function App() {
         {tab==="home"        && <HomeView {...views} />}
         {tab==="players"     && <PlayersView {...views} />}
         {tab==="matches"     && <MatchesView {...views} />}
+        {tab==="inhouse"     && <InHouseView {...views} />}
         {tab==="standings"   && <StandingsView {...views} />}
-        {tab==="sixball"     && <SixBallView {...views} />}
         {tab==="shares"      && <SharesView {...views} />}
         {tab==="playoffs"    && <PlayoffsView {...views} />}
+        {tab==="participation" && <ParticipationView {...views} />}
         {tab==="money"       && <MoneyView {...views} />}
         {tab==="pnl"         && <PnLView {...views} />}
         {tab==="playerboard" && <PlayerBoardView {...views} />}
+        {tab==="teams"       && <TeamsView {...views} />}
+        {tab==="bars"        && <BarsView {...views} />}
+        {tab==="rules"       && <RulesView />}
+        {tab==="manual"      && <ManualView money={views.money} season={views.season} bars={views.bars} />}
       </div>
     </div>
   );
 }
+
+// ─── TEAMS VIEW ──────────────────────────────────────────────────────────────
+function TeamsView({ doublesTeams, setDoublesTeams, triplesTeams, setTriplesTeams, money }) {
+  const $$ = v => "$" + (Math.round(v)||0).toLocaleString();
+
+  const addTeam = (format) => {
+    const name = prompt(`Team name (${format}):`);
+    if (!name) return;
+    const p1 = prompt("Player 1 name:");
+    const p2 = prompt("Player 2 name:");
+    const p3 = format==="triples" ? prompt("Player 3 name:") : null;
+    if (!p1||!p2) return;
+    const newTeam = { id:Date.now(), name, p1, p2, p3:p3||"", paid:false, wins:0, losses:0, sharePrice:TEAM_SHARE_START, format };
+    if (format==="doubles") setDoublesTeams(t=>[...t,newTeam]);
+    else setTriplesTeams(t=>[...t,newTeam]);
+  };
+
+  const togglePaid = (format, id) => {
+    if (format==="doubles") setDoublesTeams(ts=>ts.map(t=>t.id===id?{...t,paid:!t.paid}:t));
+    else setTriplesTeams(ts=>ts.map(t=>t.id===id?{...t,paid:!t.paid}:t));
+  };
+
+  const recordWin = (format, id) => {
+    const update = ts => ts.map(t => {
+      if (t.id!==id) return t;
+      const wins = (t.wins||0)+1;
+      const rank = format==="doubles"
+        ? (format==="doubles"?doublesTeams:triplesTeams).sort((a,b)=>b.wins-a.wins).findIndex(x=>x.id===id)
+        : triplesTeams.sort((a,b)=>b.wins-a.wins).findIndex(x=>x.id===id);
+      const ceil = format==="doubles" ? DOUBLES_SHARE_CEIL : TRIPLES_SHARE_CEIL;
+      const newPrice = Math.min(ceil, Math.max(TEAM_SHARE_FLOOR, TEAM_SHARE_START + wins*8));
+      return {...t, wins, sharePrice:newPrice};
+    });
+    if (format==="doubles") setDoublesTeams(update);
+    else setTriplesTeams(update);
+  };
+
+  const recordLoss = (format, id) => {
+    const update = ts => ts.map(t => {
+      if (t.id!==id) return t;
+      const losses = (t.losses||0)+1;
+      const ceil = format==="doubles" ? DOUBLES_SHARE_CEIL : TRIPLES_SHARE_CEIL;
+      const newPrice = Math.max(TEAM_SHARE_FLOOR, (t.sharePrice||TEAM_SHARE_START) - 5);
+      return {...t, losses, sharePrice:newPrice};
+    });
+    if (format==="doubles") setDoublesTeams(update);
+    else setTriplesTeams(update);
+  };
+
+  const removeTeam = (format, id) => {
+    if (!confirm("Remove this team?")) return;
+    if (format==="doubles") setDoublesTeams(ts=>ts.filter(t=>t.id!==id));
+    else setTriplesTeams(ts=>ts.filter(t=>t.id!==id));
+  };
+
+  const renderTeamTable = (teams, format) => {
+    const ceil = format==="doubles" ? DOUBLES_SHARE_CEIL : TRIPLES_SHARE_CEIL;
+    const prizes = format==="doubles" ? DOUBLES_PRIZES : TRIPLES_PRIZES;
+    const perPerson = TEAM_REG_PER_PERSON;
+    const perTeam = format==="doubles" ? perPerson*2 : perPerson*3;
+    const sorted = [...teams].sort((a,b)=>(b.wins||0)-(a.wins||0));
+    return (
+      <Card title={format==="doubles" ? "👥 Doubles Teams" : "👥 Triples Teams"} borderColor={format==="doubles" ? C.blue : C.purple} icon={format==="doubles"?"👥":"👥"}>
+        <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+          <BigCard icon="👥" title="Teams" value={teams.length} color={format==="doubles"?C.blue:C.purple} sub={`${perTeam}/team reg`} />
+          <BigCard icon="💰" title="Reg Revenue" value={$$(teams.filter(t=>t.paid).length*perTeam)} color={C.green} sub={`${teams.filter(t=>t.paid).length} paid`} />
+          <BigCard icon="📈" title="Start Price" value={$$( TEAM_SHARE_START)} color={C.gold} sub={`floor $${TEAM_SHARE_FLOOR} · ceil $${ceil}`} />
+          <BigCard icon="🏆" title="Prize Pool" value={$$(teams.length>=3?prizes.p1+prizes.p2+prizes.p3:teams.length>=2?prizes.p1+prizes.p2:prizes.p1||0)} color={C.red} sub="1st/2nd/3rd" />
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 80px 90px 110px",gap:8,padding:"8px 0",borderBottom:`2px solid ${C.cardBorder}`,marginBottom:4}}>
+          {["Team","W","L","Share $","Reg",""].map(h=>(
+            <div key={h} style={{fontSize:11,color:C.gray,fontWeight:700,textAlign:"center"}}>{h}</div>
+          ))}
+        </div>
+
+        {sorted.length===0 ? (
+          <div style={{color:C.gray,fontSize:13,padding:"20px 0",textAlign:"center"}}>No teams yet. Add one below.</div>
+        ) : sorted.map((t,i)=>{
+          const prizeAmt = i===0?prizes.p1:i===1?prizes.p2:i===2?prizes.p3:0;
+          return (
+            <div key={t.id} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 80px 90px 110px",gap:8,padding:"10px 0",borderTop:`1px solid ${C.cardBorder}`,alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:900,color:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.white}}>
+                  {i===0?"🥇":i===1?"🥈":i===2?"🥉":"  "} {t.name}
+                </div>
+                <div style={{fontSize:11,color:C.gray,marginTop:2}}>
+                  {t.p1} · {t.p2}{t.p3?` · ${t.p3}`:""}
+                </div>
+                {prizeAmt>0 && <div style={{fontSize:11,color:C.gold,fontWeight:700}}>🏆 Prize: {$$(prizeAmt)}</div>}
+              </div>
+              <div style={{textAlign:"center",fontSize:14,fontWeight:900,color:C.green}}>{t.wins||0}</div>
+              <div style={{textAlign:"center",fontSize:14,fontWeight:900,color:C.red}}>{t.losses||0}</div>
+              <div style={{textAlign:"center"}}>
+                <span style={{fontSize:13,fontWeight:900,color:t.sharePrice>=ceil*0.8?C.gold:t.sharePrice<=TEAM_SHARE_FLOOR*2?C.red:C.green}}>
+                  {$$(t.sharePrice||TEAM_SHARE_START)}
+                </span>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <span onClick={()=>togglePaid(format,t.id)} style={{cursor:"pointer",fontSize:11,fontWeight:700,padding:"4px 8px",borderRadius:6,background:t.paid?"#00ff0022":C.dimBg,color:t.paid?C.green:C.gray,border:`1px solid ${t.paid?C.green:C.cardBorder}`}}>
+                  {t.paid?"✅ PAID":"⬜ unpaid"}
+                </span>
+              </div>
+              <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+                <button onClick={()=>recordWin(format,t.id)} style={{background:"#00ff0022",color:C.green,border:`1px solid ${C.green}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:12,fontWeight:700}}>+W</button>
+                <button onClick={()=>recordLoss(format,t.id)} style={{background:"#ff000022",color:C.red,border:`1px solid ${C.red}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:12,fontWeight:700}}>+L</button>
+                <button onClick={()=>removeTeam(format,t.id)} style={{background:C.dimBg,color:C.gray,border:`1px solid ${C.cardBorder}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:12}}>✕</button>
+              </div>
+            </div>
+          );
+        })}
+        <button onClick={()=>addTeam(format)} style={{marginTop:14,width:"100%",padding:"12px",background:"#00ff0011",color:C.green,border:`2px dashed ${C.green}`,borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:14}}>
+          + Add {format==="doubles"?"Doubles":"Triples"} Team
+        </button>
+      </Card>
+    );
+  };
+
+  // P&L for teams
+  const dPaid = doublesTeams.filter(t=>t.paid).length;
+  const tPaid = triplesTeams.filter(t=>t.paid).length;
+  const dRev = dPaid*2*TEAM_REG_PER_PERSON;
+  const tRev = tPaid*3*TEAM_REG_PER_PERSON;
+  const dPrize = doublesTeams.length>=3?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3:doublesTeams.length>=2?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2:doublesTeams.length===1?DOUBLES_PRIZES.p1:0;
+  const tPrize = triplesTeams.length>=3?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3:triplesTeams.length>=2?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2:triplesTeams.length===1?TRIPLES_PRIZES.p1:0;
+  const teamNet = dRev + tRev - dPrize - tPrize;
+
+  return (
+    <div>
+      <PageTitle icon="👥" title="Team Play" desc="Doubles (2-player) & Triples (3-player) · $150/person · Shares start $45 · Doubles ceil $200 · Triples ceil $250" />
+      <Tip color={C.blue}>Team share prices start at <strong>$45</strong> and move based on wins/losses. Floor is $10. Doubles max $200 · Triples max $250. More volatile than singles — bigger upside for supporters.</Tip>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:20}}>
+        <BigCard icon="👥" title="Doubles Teams" value={doublesTeams.length} color={C.blue} sub={`${dPaid} paid · ${$$( dRev)} reg`} />
+        <BigCard icon="👥" title="Triples Teams" value={triplesTeams.length} color={C.purple} sub={`${tPaid} paid · ${$$(tRev)} reg`} />
+        <BigCard icon="💰" title="Team Revenue" value={$$(dRev+tRev)} color={C.green} sub="reg collected" />
+        <BigCard icon="📊" title="Team Net P&L" value={$$(teamNet)} color={teamNet>=0?C.green:C.red} sub="after prizes" />
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+        {renderTeamTable(doublesTeams,"doubles")}
+        {renderTeamTable(triplesTeams,"triples")}
+      </div>
+
+      <Card title="📊 Team P&L Breakdown" borderColor={C.gold} icon="📊">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:900,color:C.green,marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${C.green}33`}}>DOUBLES</div>
+            {[
+              [`Reg (${dPaid} teams × 2 players × $150)`, dRev],
+              ["1st Place Prize", DOUBLES_PRIZES.p1],
+              ["2nd Place Prize", DOUBLES_PRIZES.p2],
+              ["3rd Place Prize", DOUBLES_PRIZES.p3],
+            ].map(([l,v],i)=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.cardBorder}`,fontSize:12}}>
+                <span style={{color:C.gray}}>{l}</span>
+                <span style={{color:i===0?C.green:C.red,fontWeight:700}}>{i===0?$$(v):`(${$$(v)})`}</span>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:900,fontSize:13}}>
+              <span>Doubles Net</span>
+              <span style={{color:dRev-dPrize>=0?C.green:C.red}}>{$$(dRev-dPrize)}</span>
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:13,fontWeight:900,color:C.purple,marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${C.purple}33`}}>TRIPLES</div>
+            {[
+              [`Reg (${tPaid} teams × 3 players × $150)`, tRev],
+              ["1st Place Prize", TRIPLES_PRIZES.p1],
+              ["2nd Place Prize", TRIPLES_PRIZES.p2],
+              ["3rd Place Prize", TRIPLES_PRIZES.p3],
+            ].map(([l,v],i)=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.cardBorder}`,fontSize:12}}>
+                <span style={{color:C.gray}}>{l}</span>
+                <span style={{color:i===0?C.purple:C.red,fontWeight:700}}>{i===0?$$(v):`(${$$(v)})`}</span>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:900,fontSize:13}}>
+              <span>Triples Net</span>
+              <span style={{color:tRev-tPrize>=0?C.green:C.red}}>{$$(tRev-tPrize)}</span>
+            </div>
+          </div>
+        </div>
+        <div style={{marginTop:14,background:"#001a0a",border:`2px solid ${C.green}`,borderRadius:10,padding:"14px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,textAlign:"center"}}>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>TEAM NET (LIVE)</div><div style={{fontSize:22,fontWeight:900,color:teamNet>=0?C.green:C.red}}>{$$(teamNet)}</div></div>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>PROJ (8D + 6T)</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.gold}}>{$$(8*2*150+6*3*150-(DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3))}</div>
+          </div>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>PROJ/PARTNER</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.gold}}>{$$((8*2*150+6*3*150-(DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3))/4)}</div>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:C.gray,marginTop:8,textAlign:"center"}}>
+          Projection assumes 8 doubles teams + 6 triples teams · Share vol not included above · Shares traded separately at $45 start, $200/$250 ceiling
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── SHARED UI ────────────────────────────────────────────────────────────────
 function BigCard({ icon, title, value, sub, color, onClick }) {
   return (
@@ -357,36 +685,36 @@ function HomeView({ money, standings, s1standings, s2standings, season, setSeaso
       <div style={{ textAlign:"center", padding:"16px 0 24px" }}>
         <div style={{ fontSize:48 }}>🎱</div>
         <div style={{ fontSize:26, fontWeight:900 }}>BilliardsMarketLadder</div>
-        <div style={{ fontSize:15, color:C.gray, marginTop:6 }}>Two seasons. One championship. Shares that grow the whole time.</div>
+        <div style={{ fontSize:15, color:C.gray, marginTop:6 }}>3 seasons · 4 game types · Per-bar live leaderboards · Shares $35–$150</div>
       </div>
-      <Card title="How the 2-Season League Works" icon="📋" borderColor={C.blue}>
+      <Card title="How the 3-Season League Works" icon="📋" borderColor={C.blue}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <div style={{ background:C.dimBg, borderRadius:8, padding:14, border:`1px solid ${C.gold}` }}>
-            <div style={{ fontSize:13, fontWeight:900, color:C.gold, marginBottom:8 }}>📅 SEASON 1 — Weeks 1–8</div>
+            <div style={{ fontSize:13, fontWeight:900, color:C.gold, marginBottom:8 }}>📅 SEASON 1 — Weeks 1–8 (vol ×1.0)</div>
             <div style={{ fontSize:13, color:C.gray, lineHeight:1.7 }}>
-              • Play 8 weeks of matches<br/>
-              • Top 3 earn season prizes<br/>
-              • Standings reset after<br/>
-              • 🔑 Supporters choose: <strong style={{ color:C.white }}>cash out</strong> or <strong style={{ color:C.green }}>hold shares</strong>
+              • Lower prizes: 1st $750 · 2nd $350 · 3rd $150<br/>
+              • Shares: $35 (unranked) → $150 (#1)<br/>
+              • 🔑 S1 alumni get FIRST PICK for S2 &amp; S3<br/>
+              • 1st place = FREE S3 entry · 2nd = $100 S3 entry
             </div>
           </div>
           <div style={{ background:C.dimBg, borderRadius:8, padding:14, border:`1px solid ${C.purple}` }}>
-            <div style={{ fontSize:13, fontWeight:900, color:C.purple, marginBottom:8 }}>📅 SEASON 2 — Weeks 9–16</div>
+            <div style={{ fontSize:13, fontWeight:900, color:C.purple, marginBottom:8 }}>📅 SEASON 2 — Weeks 9–16 (vol ×1.5)</div>
             <div style={{ fontSize:13, color:C.gray, lineHeight:1.7 }}>
-              • Fresh standings, same players<br/>
-              • Top 3 earn season prizes again<br/>
-              • Top 8 go to playoffs<br/>
-              • 🏆 All shares MUST cash out after playoffs
+              • Bigger prizes: 1st $1,500 · 2nd $700 · 3rd $300<br/>
+              • S1 alumni get first registration choice<br/>
+              • MORE volatile shares — bigger swings<br/>
+              • 1st place = FREE S3 entry · 2nd = $100 S3 entry
             </div>
           </div>
         </div>
         <div style={{ marginTop:12, background:"#001a10", borderRadius:8, padding:"12px 16px", fontSize:13, color:C.green }}>
-          💡 A player can win <strong>Season 1 prizes + Season 2 prizes + Playoff prize</strong> — three paydays total. Max = $2,600
+          💡 A player can win <strong>S1 + S2 + S3 prizes</strong> — three paydays total · S3 is the playoff season (vol ×2.5) · Max = $5,250 for S3 champion
         </div>
       </Card>
       <Card title="How Shares Work — Like a Stock" icon="📈" borderColor={C.gold}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
-          {[["⚪ Unranked","$25",C.gray],["🔵 Top 8","$35",C.blue],["🟡 Top 4","$50",C.gold],["🔴 Top 2","$75",C.red]].map(([l,v,c])=>(
+          {[["⚪ Unranked","$35",C.gray],["🔵 Top 8","$60",C.blue],["🟡 Top 4","$90",C.gold],["🟠 #2","$120","#ff6b35"],["🔴 #1","$150",C.red]].map(([l,v,c])=>(
             <div key={l} style={{ background:C.dimBg, borderRadius:8, padding:"10px 8px", textAlign:"center", border:`1px solid ${c}` }}>
               <div style={{ fontSize:11, color:C.gray }}>{l}</div>
               <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
@@ -400,7 +728,7 @@ function HomeView({ money, standings, s1standings, s2standings, season, setSeaso
           🏆 <strong style={{ color:C.red }}>Final cash-out</strong> is mandatory at end of Season 2 playoffs. Champion backers earn $100/share.
         </div>
         <div style={{ marginTop:10, background:"#0a0a20", border:`1px solid ${C.blue}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:C.blue }}>
-          Example: Buy 10 shares at $25 when player is unranked = <strong>$250 in</strong>. Player wins championship → <strong>$1,000 back</strong>. That's a 4× return.
+          Example: Buy 5 shares at $30 when player is unranked = <strong>$150 in</strong>. Player wins championship → <strong>$1,000 back</strong>. That's a 4× return.
         </div>
       </Card>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
@@ -429,51 +757,263 @@ function HomeView({ money, standings, s1standings, s2standings, season, setSeaso
   );
 }
 // ─── PLAYERS ─────────────────────────────────────────────────────────────────
-function PlayersView({ players, setPlayers, season }) {
-  const upd = (i,k,v) => setPlayers(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
-  const totReg  = players.filter(p=>p.paid).length * 150;
-  const totWeek = players.reduce((s,p)=>s+(parseInt(p.weeksPaid)||0)*25,0);
-  const totFast = season===1 ? players.filter(p=>p.fastTime).length * 30 : 0;
+// ─── IN-HOUSE LEAGUES ───────────────────────────────────────────────────────────────────────────────
+function InHouseView({ players, setPlayers, leagueNames, setLeagueNames, standings }) {
+  const updP  = (i,k,v) => setPlayers(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
+  const updLN = (i,v)   => setLeagueNames(ln=>ln.map((n,idx)=>idx===i?v:n));
+  const named = players.filter(p=>p.name);
+  const getCnt   = (p) => [p.inLeague1,p.inLeague2,p.inLeague3].filter(Boolean).length;
+  const getWkly  = (c) => c===3 ? INHOUSE_WEEKLY_BUNDLE : c*INHOUSE_WEEKLY_FEE;
+  const getReg   = (c) => c===3 ? INHOUSE_REG_BUNDLE    : c*INHOUSE_REG_FEE;
+  const totalReg  = named.reduce((s,p) => p.inLeagueRegPaid ? s+getReg(getCnt(p)) : s, 0);
+  const totalWkly = named.reduce((s,p) => { const c=getCnt(p); return c ? s+(parseInt(p.inLeagueWeeksPaid)||0)*getWkly(c) : s; }, 0);
+  const totalRev  = totalReg + totalWkly;
+  const bundleCount = named.filter(p=>p.inLeague1&&p.inLeague2&&p.inLeague3).length;
   return (
     <div>
-      <PageTitle icon="👤" title={`Players — Season ${season}`} desc={season===1 ? "Register all 16 players and collect fees." : "Season 2 — same players, fresh week count."} />
-      <Tip>{season===1 ? "Check Reg Paid when they pay $150. Set weeks paid as they pay each week ($25). Check 6-Ball if they paid the one-time $30 fee." : "Registration is paid again for Season 2 ($150). Weekly dues continue ($25/wk)."}</Tip>
+      <PageTitle icon="🏟" title="In-House Leagues" desc={`3 leagues at 3 different bars. 1 league = $${INHOUSE_WEEKLY_FEE}/wk + $${INHOUSE_REG_FEE} reg. All 3 = $${INHOUSE_WEEKLY_BUNDLE}/wk + $${INHOUSE_REG_BUNDLE} reg. Bundle saves $50 reg + $10/wk. More leagues = higher & more volatile stock.`} />
+      <Tip>Players in more leagues get a higher stock price AND their exhibition results swing the price harder. A 3-league player’s stock is the most active on the board.</Tip>
+
+      <Card title="🍺 League Locations — Add Bar Names When Confirmed" borderColor={C.orange} icon="🍺">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          {[0,1,2].map(i=>(
+            <div key={i} style={{ background:C.dimBg, borderRadius:8, padding:14, border:`1px solid ${leagueNames[i]?C.green:C.cardBorder}` }}>
+              <div style={{ fontSize:11, color:C.gray, fontWeight:700, marginBottom:6 }}>LEAGUE {i+1}</div>
+              <input value={leagueNames[i]} onChange={e=>updLN(i,e.target.value)} placeholder="Bar name (pending)…" style={{ ...textInp, fontSize:14, fontWeight:700 }} />
+              <div style={{ marginTop:6, fontSize:11, color:leagueNames[i]?C.green:C.gray }}>
+                {leagueNames[i] ? `✅ ${leagueNames[i]}` : "⏳ Pending bar agreement"}
+              </div>
+              <div style={{ marginTop:4, fontSize:10, color:C.blue }}>$150 reg · $25/wk · +$10/share min</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:10, background:"#001a2a", borderRadius:8, padding:"10px 14px", fontSize:13, color:C.blue }}>
+          💡 Players at all 3 bars auto-connect. Bundle discount applies automatically when all 3 leagues checked below.
+        </div>
+      </Card>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="💵" title="Total In-House Revenue" value={$$(totalRev)} color={C.green} />
+        <BigCard icon="📋" title="Registration Collected" value={$$(totalReg)} color={C.blue} sub={`${named.filter(p=>p.inLeagueRegPaid&&getCnt(p)>0).length} players paid`} />
+        <BigCard icon="📅" title="Weekly Dues Collected" value={$$(totalWkly)} color={C.gold} sub="all leagues combined" />
+        <BigCard icon="🎯" title="Bundle Players (all 3)" value={`${bundleCount}`} color={C.orange} sub="save $50 reg + $10/wk" />
+      </div>
+
+      <Card title="📊 Fee Structure & Stock Impact" borderColor={C.gold}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10 }}>
+          {[
+            { label:"0 leagues", wkly:"—", reg:"—",                          cnt:0, color:C.gray   },
+            { label:"1 league",  wkly:`$${INHOUSE_WEEKLY_FEE}/wk`,    reg:`$${INHOUSE_REG_FEE} reg`,   cnt:1, color:C.blue   },
+            { label:"2 leagues", wkly:`$${INHOUSE_WEEKLY_FEE*2}/wk`,  reg:`$${INHOUSE_REG_FEE*2} reg`, cnt:2, color:C.gold   },
+            { label:"3 leagues", wkly:`$${INHOUSE_WEEKLY_BUNDLE}/wk`, reg:`$${INHOUSE_REG_BUNDLE} reg`, cnt:3, color:C.red, save:"save $50 reg + $10/wk" },
+          ].map(({label,wkly,reg,cnt,color,save})=>(
+            <div key={label} style={{ background:C.dimBg, border:`2px solid ${color}`, borderRadius:10, padding:12, textAlign:"center" }}>
+              <div style={{ fontSize:12, fontWeight:700, color, marginBottom:6 }}>{label}</div>
+              <div style={{ fontSize:15, fontWeight:900, color:C.white }}>{wkly}</div>
+              <div style={{ fontSize:11, color:C.gray, marginBottom:6 }}>{reg}</div>
+              <div style={{ fontSize:14, fontWeight:900, color }}>+${INHOUSE_STOCK_BUMPS[cnt]}/share</div>
+              <div style={{ fontSize:10, color:C.gray }}>stock bump</div>
+              <div style={{ fontSize:10, color:C.orange, marginTop:2 }}>×{INHOUSE_VOL_SCALE[cnt]} swing</div>
+              {save && <div style={{ fontSize:9, color:C.green, fontWeight:700, marginTop:4 }}>{save}</div>}
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:10, background:"#0a1a00", border:`1px solid ${C.green}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:C.gray }}>
+          <strong style={{ color:C.green }}>Example — All-3 bundle · 8 weeks:</strong> {" "}
+          ${INHOUSE_REG_BUNDLE} reg + (8 × ${INHOUSE_WEEKLY_BUNDLE}) = <strong style={{ color:C.white }}>${INHOUSE_REG_BUNDLE + 8*INHOUSE_WEEKLY_BUNDLE} total in-house cost</strong>. Stock gets +${INHOUSE_STOCK_BUMPS[3]}/share on top of rank + exhibition.
+        </div>
+      </Card>
+
+      <Card title="👤 Player League Registrations" borderColor={C.blue} icon="👤">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 55px 55px 55px 60px 70px 70px 70px 90px", gap:4, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+          {["Player","Lg 1","Lg 2","Lg 3","Cnt","Fee/Wk","Reg $","RegPaid","Stock +"].map(h=>(
+            <div key={h} style={{ fontSize:9, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+          ))}
+        </div>
+        {named.length===0 ? (
+          <div style={{ color:C.gray, fontSize:13, padding:"20px 0", textAlign:"center" }}>Add players in the Players tab first.</div>
+        ) : named.map((p,_i)=>{
+          const idx = players.findIndex(x=>x.id===p.id);
+          const cnt = getCnt(p);
+          const regFee = getReg(cnt);
+          const wklyFee = getWkly(cnt);
+          const bump = INHOUSE_STOCK_BUMPS[cnt];
+          const isBundle = cnt===3;
+          const bumpColor = bump>=35?C.red:bump>=20?C.gold:bump>=10?C.blue:C.gray;
+          return (
+            <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1fr 55px 55px 55px 60px 70px 70px 70px 90px", gap:4, padding:"9px 0", borderTop:`1px solid ${C.cardBorder}`, alignItems:"center", background:isBundle?"#001a08":_i%2===0?C.card:C.dimBg }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700 }}>{p.name}</div>
+                {isBundle && <div style={{ fontSize:9, color:C.green, fontWeight:700 }}>✅ BUNDLE</div>}
+                {cnt>0 && <div style={{ fontSize:9, color:C.gray }}>${wklyFee}/wk</div>}
+              </div>
+              {[1,2,3].map(n=>(
+                <div key={n} style={{ display:"flex", justifyContent:"center" }}>
+                  <button onClick={()=>updP(idx,`inLeague${n}`,!p[`inLeague${n}`])} style={{
+                    background:p[`inLeague${n}`]?C.green+"22":"transparent",
+                    border:`2px solid ${p[`inLeague${n}`]?C.green:C.cardBorder}`,
+                    color:p[`inLeague${n}`]?C.green:C.gray,
+                    borderRadius:6, padding:"4px 2px", cursor:"pointer",
+                    fontFamily:"inherit", fontSize:12, fontWeight:700, width:"100%",
+                  }}>
+                    {p[`inLeague${n}`]?"✓":"—"}
+                    {leagueNames[n-1] && <div style={{ fontSize:7, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{leagueNames[n-1].slice(0,7)}</div>}
+                  </button>
+                </div>
+              ))}
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:14, fontWeight:900, color:cnt===3?C.red:cnt===2?C.gold:cnt===1?C.blue:C.gray }}>{cnt}/3</div>
+              </div>
+              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:C.white }}>{cnt>0?`$${wklyFee}/wk`:"—"}</div>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:isBundle?C.green:C.white }}>{cnt>0?`$${regFee}`:"—"}</div>
+                {isBundle && <div style={{ fontSize:8, color:C.green }}>save $50</div>}
+              </div>
+              <div style={{ display:"flex", justifyContent:"center" }}>
+                {cnt>0 ? (
+                  <button onClick={()=>updP(idx,"inLeagueRegPaid",!p.inLeagueRegPaid)} style={{
+                    background:p.inLeagueRegPaid?C.green+"22":"transparent",
+                    border:`2px solid ${p.inLeagueRegPaid?C.green:C.cardBorder}`,
+                    color:p.inLeagueRegPaid?C.green:C.gray,
+                    borderRadius:6, padding:"4px 4px", cursor:"pointer",
+                    fontFamily:"inherit", fontSize:10, fontWeight:700, width:"100%",
+                  }}>{p.inLeagueRegPaid?"✓ Paid":"Unpaid"}</button>
+                ) : <span style={{ textAlign:"center", display:"block", color:C.gray }}>—</span>}
+              </div>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:14, fontWeight:900, color:bumpColor }}>{cnt>0?`+$${bump}`:"+$0"}</div>
+                <div style={{ fontSize:8, color:C.gray }}>per share</div>
+              </div>
+            </div>
+          );
+        })}
+
+        {named.filter(p=>getCnt(p)>0).length>0 && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ fontSize:12, color:C.gray, fontWeight:700, paddingTop:10, borderTop:`1px solid ${C.cardBorder}`, marginBottom:8 }}>
+              📅 WEEKLY IN-HOUSE DUES — track weeks paid per player
+            </div>
+            {named.filter(p=>getCnt(p)>0).map((p)=>{
+              const idx = players.findIndex(x=>x.id===p.id);
+              const cnt = getCnt(p);
+              const wkly = getWkly(cnt);
+              const wksPaid = parseInt(p.inLeagueWeeksPaid)||0;
+              return (
+                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:13, fontWeight:700 }}>{p.name}</span>
+                    <span style={{ fontSize:11, color:C.gray, marginLeft:8 }}>${wkly}/wk · {cnt} league{cnt!==1?"s":""}{cnt===3?" (bundle)":""}</span>
+                  </div>
+                  <button onClick={()=>updP(idx,"inLeagueWeeksPaid",Math.max(0,wksPaid-1))} style={btnSm}>−</button>
+                  <span style={{ minWidth:22, textAlign:"center", fontWeight:900, color:C.gold, fontSize:16 }}>{wksPaid}</span>
+                  <button onClick={()=>updP(idx,"inLeagueWeeksPaid",Math.min(8,wksPaid+1))} style={btnSm}>+</button>
+                  <span style={{ fontSize:12, color:C.gray, minWidth:80 }}>× ${wkly} = <strong style={{ color:C.green }}>${wksPaid*wkly}</strong></span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#001a0a", border:`2px solid ${C.green}`, padding:"12px 16px", marginTop:10, borderRadius:8 }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700 }}>Total in-house revenue collected:</div>
+            <div style={{ fontSize:11, color:C.gray }}>{$$(totalReg)} reg + {$$(totalWkly)} weekly dues</div>
+          </div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(totalRev)}</div>
+        </div>
+      </Card>
+
+      <Card title="⚡ Exhibition Stock Swings Per Player" borderColor={C.orange} icon="⚡">
+        <Tip color={C.orange}>Exhibition wins push stock up, losses pull it down. More in-house leagues = bigger swing (volatility multiplier shown). Rank is NEVER affected by exhibition results.</Tip>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 55px 60px 75px 80px", gap:6, padding:"6px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+          {["Player","Exhb W","Exhb L","Leagues","Vol ×","Swing","Stock $"].map(h=>(
+            <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+          ))}
+        </div>
+        {named.map((p)=>{
+          const idx = players.findIndex(x=>x.id===p.id);
+          const cnt = getCnt(p);
+          const vol = INHOUSE_VOL_SCALE[cnt];
+          const raw = (p.exhibWins||0)*EXHB_WIN_BUMP - (p.exhibLosses||0)*EXHB_LOSS_BUMP;
+          const swing = Math.max(-EXHB_MAX*vol, Math.min(EXHB_MAX*vol, raw*vol));
+          const swingColor = swing>0?C.green:swing<0?C.red:C.gray;
+          const price = getSharePrice(p.name, standings, players);
+          return (
+            <div key={p.id} style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 55px 60px 75px 80px", gap:6, padding:"8px 0", borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+              <div style={{ fontSize:13, fontWeight:700 }}>{p.name}</div>
+              <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:3 }}>
+                <button onClick={()=>updP(idx,"exhibWins",Math.max(0,(p.exhibWins||0)-1))} style={{...btnSm,width:18,height:18,fontSize:11}}>−</button>
+                <span style={{ minWidth:18, textAlign:"center", fontWeight:900, color:C.green }}>{p.exhibWins||0}</span>
+                <button onClick={()=>updP(idx,"exhibWins",(p.exhibWins||0)+1)} style={{...btnSm,width:18,height:18,fontSize:11}}>+</button>
+              </div>
+              <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:3 }}>
+                <button onClick={()=>updP(idx,"exhibLosses",Math.max(0,(p.exhibLosses||0)-1))} style={{...btnSm,width:18,height:18,fontSize:11}}>−</button>
+                <span style={{ minWidth:18, textAlign:"center", fontWeight:900, color:C.red }}>{p.exhibLosses||0}</span>
+                <button onClick={()=>updP(idx,"exhibLosses",(p.exhibLosses||0)+1)} style={{...btnSm,width:18,height:18,fontSize:11}}>+</button>
+              </div>
+              <div style={{ textAlign:"center", fontSize:12, color:cnt>0?C.orange:C.gray, fontWeight:700 }}>{cnt}/3</div>
+              <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:cnt>0?C.orange:C.gray }}>×{vol}</div>
+              <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:swingColor }}>
+                {swing>0?`+$${Math.round(swing)}`:swing<0?`–$${Math.abs(Math.round(swing))}`:"—"}
+              </div>
+              <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:C.gold }}>{$$(price)}</div>
+            </div>
+          );
+        })}
+        {named.length===0 && <div style={{ color:C.gray, fontSize:13, padding:"16px 0", textAlign:"center" }}>No named players yet.</div>}
+      </Card>
+    </div>
+  );
+}
+function PlayersView({ players, setPlayers, season, bars }) {
+  const upd = (i,k,v) => setPlayers(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
+  const regFee = season===1?S1_REG:season===2?S2_REG:S3_REG;
+  const weekKey = season===1?"weeksPaid":season===2?"s2weeksPaid":"s3weeksPaid";
+  const paidKey = season===1?"paid":season===2?"s2paid":"s3paid";
+  const totReg  = players.filter(p=>p[paidKey]).length * regFee;
+  const totWeek = players.reduce((s,p)=>s+(parseInt(p[weekKey])||0)*WEEK_FEE,0);
+  return (
+    <div>
+      <PageTitle icon="👤" title={`Players — Season ${season}`} desc={season===1 ? `Register players. Reg fee $${S1_REG}/player. Weekly $${WEEK_FEE}/wk. Assign bar.` : season===2 ? `S2: Reg $${S2_REG}/player. S1 alumni get first pick. Weekly $${WEEK_FEE}/wk.` : `S3 PLAYOFFS: Reg $${S3_REG} (S1/S2 winners free or half). Weekly $${WEEK_FEE}/wk.`} />
+      <Tip>{season===1 ? `Check Reg Paid ($${S1_REG}). Set weeks. Assign player to a bar. S1 alumni get priority for S2+S3.` : season===2 ? `S2 reg $${S2_REG}. S1 players get sign-up priority. S1 1st place = FREE S3. S1 2nd = $100 S3.` : `S3 playoffs reg $${S3_REG} (S1/S2 1st = FREE, 2nd = $100). Vol ×2.5 — maximum volatility.`}</Tip>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
         <BigCard icon="💵" title="Registration" value={$$(totReg)} color={C.green} />
         <BigCard icon="📅" title="Weekly dues" value={$$(totWeek)} color={C.blue} />
-        {season===1 && <BigCard icon="⚡" title="6-Ball one-time" value={$$(totFast)} color={C.gold} />}
       </div>
       <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
-        <div style={{ display:"grid", gridTemplateColumns:season===1?"30px 1fr 100px 120px 100px":"30px 1fr 100px 120px", gap:8, padding:"10px 14px", background:C.dimBg }}>
-          {(season===1
-            ? ["#","Player Name","Reg Paid\n($150)","Weeks Paid\n($25/wk)","6-Ball\n($30 once)"]
-            : ["#","Player Name","Reg Paid S2\n($150)","Weeks Paid\n($25/wk)"]
-          ).map(h=>(
+        <div style={{ display:"grid", gridTemplateColumns:"30px 1fr 90px 110px 90px 80px", gap:8, padding:"10px 14px", background:C.dimBg }}>
+          {["#","Player Name",`Reg Paid\n($${regFee})`,"Weeks Paid","Bar","Game"].map(h=>(
             <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center", whiteSpace:"pre-line", lineHeight:1.3 }}>{h}</div>
           ))}
         </div>
         {players.map((p,i)=>(
-          <div key={p.id} style={{ display:"grid", gridTemplateColumns:season===1?"30px 1fr 100px 120px 100px":"30px 1fr 100px 120px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+          <div key={p.id} style={{ display:"grid", gridTemplateColumns:"30px 1fr 90px 110px 90px 80px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
             <div style={{ fontSize:12, color:C.gray, textAlign:"center" }}>{i+1}</div>
             <input value={p.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
             <div style={{ display:"flex", justifyContent:"center" }}>
-              <CheckBox checked={p.paid} onChange={v=>upd(i,"paid",v)} label={p.paid?"✓ Paid":"Not paid"} color={C.green} />
+              <CheckBox checked={p[paidKey]||false} onChange={v=>upd(i,paidKey,v)} label={p[paidKey]?"✓ Paid":"Unpaid"} color={C.green} />
             </div>
-            <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6 }}>
-              <button onClick={()=>upd(i,"weeksPaid",Math.max(0,(parseInt(p.weeksPaid)||0)-1))} style={btnSm}>−</button>
-              <span style={{ minWidth:22, textAlign:"center", fontWeight:900, fontSize:16, color:C.gold }}>{p.weeksPaid||0}</span>
-              <button onClick={()=>upd(i,"weeksPaid",Math.min(8,(parseInt(p.weeksPaid)||0)+1))} style={btnSm}>+</button>
+            <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:4 }}>
+              <button onClick={()=>upd(i,weekKey,Math.max(0,(parseInt(p[weekKey])||0)-1))} style={btnSm}>−</button>
+              <span style={{ minWidth:22, textAlign:"center", fontWeight:900, fontSize:16, color:C.gold }}>{p[weekKey]||0}</span>
+              <button onClick={()=>upd(i,weekKey,Math.min(8,(parseInt(p[weekKey])||0)+1))} style={btnSm}>+</button>
             </div>
-            {season===1 && (
-              <div style={{ display:"flex", justifyContent:"center" }}>
-                <CheckBox checked={p.fastTime} onChange={v=>upd(i,"fastTime",v)} label={p.fastTime?"✓ In":"Out"} color={C.blue} />
-              </div>
-            )}
+            <div>
+              <select value={p.barId||""} onChange={e=>upd(i,"barId",e.target.value?parseInt(e.target.value):null)} style={{ ...selStyle, fontSize:11, padding:"4px 6px" }}>
+                <option value="">No bar</option>
+                {bars.map(b=><option key={b.id} value={b.id}>{b.name||`Bar ${b.id}`}</option>)}
+              </select>
+            </div>
+            <div>
+              <select value={p.preferredGame||"straight8"} onChange={e=>upd(i,"preferredGame",e.target.value)} style={{ ...selStyle, fontSize:11, padding:"4px 6px" }}>
+                {Object.entries(GAME_LABELS).map(([k,v])=><option key={k} value={k}>{v.replace("8-Ball (BCA Rules)","BCA 8").replace("Straight 8-Ball","Str. 8").replace("-Ball","")}</option>)}
+              </select>
+            </div>
           </div>
         ))}
         <div style={{ background:"#0a1a0a", border:`2px solid ${C.green}`, padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:14, fontWeight:700 }}>Season {season} total collected:</span>
-          <span style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(totReg+totWeek+totFast)}</span>
+          <span style={{ fontSize:14, fontWeight:700 }}>S{season} total collected:</span>
+          <span style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(totReg+totWeek)}</span>
         </div>
       </div>
     </div>
@@ -487,8 +1027,12 @@ function MatchesView({ matches, setMatches, players, season }) {
   const [openWeek, setOpenWeek] = useState(1);
   return (
     <div>
-      <PageTitle icon="🎱" title={`Match Results — Season ${season}`} desc="Select two players, enter scores. Winner auto-detects." />
-      <Tip>Pick a week, fill in the match. Scores update standings and share prices automatically.</Tip>
+      <PageTitle icon="🎱" title={`Match Results — Season ${season}`} desc="Straight 8 · BCA 8 · 9-Ball · 10-Ball. Off-schedule matches count at ½ price impact." />
+      <Tip>Game type affects stock volatility (10-ball = most volatile). Off-schedule matches move prices half as much as scheduled matches. S{season} vol ×{SEASON_VOL[season-1]}.</Tip>
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        {Object.entries(GAME_LABELS).map(([k,v])=>(<span key={k} style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:20, padding:"4px 12px", fontSize:11, color:C.gray }}>{v} ×{GAME_VOL[k]}</span>))}
+        <span style={{ background:C.card, border:`1px solid ${C.orange}`, borderRadius:20, padding:"4px 12px", fontSize:11, color:C.orange }}>Off-Schedule ×{OFF_SCHEDULE_FACTOR} impact</span>
+      </div>
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20 }}>
         {weeks.map(w=>{
           const wm = matches.filter(m=>m.week===w);
@@ -504,8 +1048,16 @@ function MatchesView({ matches, setMatches, players, season }) {
         const mi = matches.findIndex(x=>x.id===m.id);
         const w = getWinner(m);
         return (
-          <div key={m.id} style={{ background:C.card, border:`2px solid ${w?C.green+"66":C.cardBorder}`, borderRadius:12, padding:16, marginBottom:12 }}>
-            <div style={{ fontSize:11, color:C.gray, fontWeight:700, marginBottom:10 }}>S{season} MATCH {m.id} — WEEK {m.week}</div>
+          <div key={m.id} style={{ background:C.card, border:`2px solid ${m.isOffSchedule?C.orange+"66":w?C.green+"66":C.cardBorder}`, borderRadius:12, padding:16, marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <span style={{ fontSize:11, color:C.gray, fontWeight:700 }}>S{season} MATCH {m.id} — WEEK {m.week} {m.isOffSchedule?"⚡ OFF-SCHEDULE":""}</span>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {Object.entries(GAME_LABELS).map(([k,v])=>(
+                  <button key={k} onClick={()=>upd(mi,"gameType",k)} style={{ background:m.gameType===k?C.blue+"33":"transparent", border:`1px solid ${m.gameType===k?C.blue:C.cardBorder}`, color:m.gameType===k?C.blue:C.gray, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontFamily:"inherit", fontSize:10, fontWeight:700 }}>{v.replace(" Rules","").replace("8-Ball","8-Ball")}</button>
+                ))}
+                <button onClick={()=>upd(mi,"isOffSchedule",!m.isOffSchedule)} style={{ background:m.isOffSchedule?C.orange+"33":"transparent", border:`1px solid ${m.isOffSchedule?C.orange:C.cardBorder}`, color:m.isOffSchedule?C.orange:C.gray, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontFamily:"inherit", fontSize:10, fontWeight:700 }}>{m.isOffSchedule?"⚡ Off-Sched":"📅 Scheduled"}</button>
+              </div>
+            </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 1fr", gap:10, alignItems:"end" }}>
               <div>
                 <div style={{ fontSize:12, color:C.gray, marginBottom:5 }}>Player A</div>
@@ -543,13 +1095,13 @@ function MatchesView({ matches, setMatches, players, season }) {
   );
 }
 // ─── STANDINGS ────────────────────────────────────────────────────────────────
-function StandingsView({ standings, s1standings, s2standings, season }) {
+function StandingsView({ standings, s1standings, s2standings, s3standings, season }) {
   return (
     <div>
       <PageTitle icon="🏆" title={`Standings — Season ${season}`} desc="Win = 2pts · Tie = 1pt · Loss = 0" />
-      {s2standings.length > 0 && (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
-          {[{label:"Season 1 Final", data:s1standings, color:C.gold},{label:"Season 2 Current", data:s2standings, color:C.purple}].map(({label,data,color})=>(
+      {(s1standings.length > 0 || s2standings.length > 0 || s3standings.length > 0) && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+          {[{label:"S1", data:s1standings, color:C.gold},{label:"S2", data:s2standings, color:C.purple},{label:"S3 Playoffs", data:s3standings, color:C.red}].map(({label,data,color})=>(
             <div key={label} style={{ background:C.card, border:`1px solid ${color}`, borderRadius:10, overflow:"hidden" }}>
               <div style={{ background:C.dimBg, padding:"8px 14px", fontSize:12, fontWeight:700, color, borderBottom:`1px solid ${color}` }}>{label}</div>
               <div style={{ padding:12 }}>
@@ -579,7 +1131,7 @@ function StandingsView({ standings, s1standings, s2standings, season }) {
                   <>
                     <div style={{ fontSize:18, fontWeight:900, color:[C.gold,"#ccc","#cd7f32"][i] }}>{standings[i].name}</div>
                     <div style={{ fontSize:13, color:C.gray }}>{standings[i].pts} pts · {standings[i].w}W</div>
-                    <div style={{ fontSize:15, color:C.green, fontWeight:700, marginTop:6 }}>S{season} prize: {$$([1000,500,250][i])}</div>
+                    <div style={{ fontSize:15, color:C.green, fontWeight:700, marginTop:6 }}>S{season} prize: {$$([SEASON_PRIZES.p1,SEASON_PRIZES.p2,SEASON_PRIZES.p3][i])}</div>
                   </>
                 ) : <div style={{ color:C.gray, fontSize:14, marginTop:8 }}>TBD</div>}
               </div>
@@ -613,40 +1165,69 @@ function StandingsView({ standings, s1standings, s2standings, season }) {
     </div>
   );
 }
-// ─── 6-BALL ──────────────────────────────────────────────────────────────────
-function SixBallView({ sixBall, setSixBall, sixRanked }) {
-  const upd = (i,k,v) => setSixBall(bs=>bs.map((b,idx)=>idx===i?{...b,[k]:v}:b));
+// ─── PARTICIPATION ───────────────────────────────────────────────────────────
+function ParticipationView({ standings, s1standings, s2standings, supporters, playoffs, money, season }) {
+  const getPlayerShareCut = (name, pool) => {
+    const idx = s2standings.findIndex(s=>s.name===name);
+    const backerPayout = idx===0 ? Math.round(pool*0.70) : idx===1 ? Math.round(pool*0.20) : idx===2 ? Math.round(pool*0.10) : 0;
+    return Math.round(backerPayout * PLAYER_SHARE_CUT);
+  };
+  const renderTable = (stnd, label) => (
+    <Card title={label} icon="🎱" borderColor={C.blue}>
+      <div style={{ display:"grid", gridTemplateColumns:"30px 1fr 80px 80px 80px 80px", gap:8, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+        {["#","Player","Rank Prize","Share Cut","Total",""].map(h=>(
+          <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+        ))}
+      </div>
+      {stnd.length===0 ? (
+        <div style={{ color:C.gray, fontSize:13, padding:"16px 0", textAlign:"center" }}>No players yet.</div>
+      ) : stnd.map((p,i) => {
+        const prize = PARTICIPATION_PRIZES[i] || 65;
+        const shareCut = label.includes("3") ? getPlayerShareCut(p.name, money.supPool) : 0;
+        const total = prize + shareCut;
+        return (
+          <div key={p.name} style={{ display:"grid", gridTemplateColumns:"30px 1fr 80px 80px 80px 80px", gap:8, padding:"9px 0", borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+            <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.gray }}>{i+1}</div>
+            <div style={{ fontSize:13, fontWeight:700 }}>{p.name||"—"}</div>
+            <div style={{ textAlign:"center", fontSize:13, color:C.green, fontWeight:700 }}>{$$(prize)}</div>
+            <div style={{ textAlign:"center", fontSize:13, color:C.purple, fontWeight:700 }}>{shareCut>0?$$(shareCut):"—"}</div>
+            <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:C.gold }}>{$$(total)}</div>
+            <div style={{ textAlign:"center", fontSize:10, color:C.gray }}>#{i+1} of {stnd.length}</div>
+          </div>
+        );
+      })}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:C.dimBg, borderRadius:8, padding:"10px 14px", marginTop:10 }}>
+        <span style={{ fontSize:13, fontWeight:700 }}>Total participation pool:</span>
+        <span style={{ fontSize:16, fontWeight:900, color:C.green }}>{$$(PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0))}</span>
+      </div>
+    </Card>
+  );
   return (
     <div>
-      <PageTitle icon="⚡" title="6-Ball Shootout" desc="One-time $30 fee — paid in Season 1. Fastest time wins." />
-      <Tip>Players only pay once in Season 1. They stay eligible through Season 2. Enter their best time in seconds.</Tip>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
-        <BigCard icon="🥇" title="1st Place" value="$200" color={C.gold} />
-        <BigCard icon="🥈" title="2nd Place" value="$100" color="#aaa" />
-        <BigCard icon="🥉" title="3rd Place" value="$50" color="#cd7f32" />
+      <PageTitle icon="🎱" title="Participation Prizes" desc="EVERY player earns money each season — no exceptions. Minimum $65/season. Rank determines how much. S3 playoff share cuts go to top 3 finishers." />
+      <Tip color={C.green}>💡 No one goes home empty. Whether you finish 1st or 16th, you earn a payout every season. All 3 seasons guaranteed.</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        <BigCard icon="🎱" title="Per-season pool" value={$$(PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0))} color={C.blue} sub="every player earns" />
+        <BigCard icon="🏆" title="Total × 3 seasons" value={$$(PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0)*3)} color={C.green} sub="participation only" />
+        <BigCard icon="💜" title="Player share cuts" value={$$(money.playerShareCuts)} color={C.purple} sub="top 3 S3 finishers" />
+        <BigCard icon="💰" title="All payouts (incl. prizes)" value={$$(money.participationPayouts + money.playerShareCuts + money.seasonPayouts)} color={C.gold} sub="full 3-season total" />
       </div>
-      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
-        <div style={{ display:"grid", gridTemplateColumns:"30px 1fr 100px 140px 60px 100px", gap:8, padding:"10px 14px", background:C.dimBg }}>
-          {["#","Player","Eligible?","Best Time (sec)","Rank","Prize"].map(h=>(
-            <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16, marginBottom:16 }}>
+        {renderTable(s1standings,"Season 1 — All Players Paid")}
+        {renderTable(s2standings,"Season 2 — All Players Paid")}
+        {renderTable(s3standings,"Season 3 (Playoffs) — All Players Paid")}
+      </div>
+      <Card title="📊 Participation Prize Scale — All 16 Spots Paid Every Season" icon="📊" borderColor={C.gold}>
+        <div style={{ fontSize:12, color:C.gray, marginBottom:12 }}>Every position earns something. No one finishes empty. Prizes below are per season (×3 seasons total).</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(8,1fr)", gap:8 }}>
+          {PARTICIPATION_PRIZES.map((v,i)=>(
+            <div key={i} style={{ background:C.dimBg, borderRadius:8, padding:"10px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:10, color:C.gray, marginBottom:4 }}>#{i+1}</div>
+              <div style={{ fontSize:14, fontWeight:900, color:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":C.green }}>{$$(v)}</div>
+            </div>
           ))}
         </div>
-        {sixBall.map((b,i)=>{
-          const r = sixRanked.find(x=>x.id===b.id);
-          return (
-            <div key={b.id} style={{ display:"grid", gridTemplateColumns:"30px 1fr 100px 140px 60px 100px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
-              <div style={{ fontSize:12, color:C.gray, textAlign:"center" }}>{i+1}</div>
-              <input value={b.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
-              <div style={{ display:"flex", justifyContent:"center" }}>
-                <CheckBox checked={b.eligible} onChange={v=>upd(i,"eligible",v)} label={b.eligible?"✓ In":"Out"} color={C.blue} />
-              </div>
-              <input value={b.time} onChange={e=>upd(i,"time",e.target.value)} placeholder="e.g. 28.5" style={{ ...selStyle, textAlign:"center", color:C.gold, fontWeight:700 }} />
-              <div style={{ textAlign:"center", fontSize:18, fontWeight:900, color:r?[C.gold,"#aaa","#cd7f32","#666"][Math.min(r.rank-1,3)]:C.gray }}>{r?`#${r.rank}`:"—"}</div>
-              <div style={{ textAlign:"center", fontWeight:700, color:C.green, fontSize:14 }}>{r&&r.prize>0?$$(r.prize):"—"}</div>
-            </div>
-          );
-        })}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -658,19 +1239,24 @@ function SharesView({ supporters, setSupporters, players, money, standings, play
   const cashOut = (i) => { updSupp(i,"cashedS1",true); };
   return (
     <div>
-      <PageTitle icon="💰" title="Supporter Shares" desc="Fans buy shares at $25 base. Price rises as their player ranks up." />
+      <PageTitle icon="💰" title="Supporter Shares" desc="50 shares/player · Supporters: max 5/price-change · Players: max 6 self-buy · First buy $35 (floor $10, ceiling $150) · Vol multiplied by season + game type." />
       {season===1 && (
         <div style={{ background:"#1a1000", border:`2px solid ${C.gold}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.gold }}>
-          🔔 <strong>End of Season 1:</strong> Supporters can cash out now or hold for Season 2. Mark them cashed out below.
+          🔔 <strong>End of Season 1:</strong> Supporters may cash out or hold for S2. Max 5 shares/buy · First-buy $35 · Floor $10 · Ceil $150.
         </div>
       )}
       {season===2 && (
         <div style={{ background:"#1a0010", border:`2px solid ${C.red}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.red }}>
-          🔔 <strong>End of Season 2:</strong> All remaining shares MUST cash out after playoffs.
+          🔔 <strong>Season 2:</strong> Vol ×1.5 — bigger swings. 1st &amp; 2nd place earn free/discounted S3 entry.
+        </div>
+      )}
+      {season===3 && (
+        <div style={{ background:"#2a0000", border:`3px solid ${C.red}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.red }}>
+          🏆 <strong>S3 PLAYOFFS — Vol ×2.5 — MAXIMUM VOLATILITY.</strong> Top S1+S2 players compete for the biggest prizes. All shares MUST cash out after S3 finals.
         </div>
       )}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:16 }}>
-        {[["⚪ Unranked","$25",C.gray,"Base price"],["🔵 Top 8","$35",C.blue,"Ranked #5–8"],["🟡 Top 4","$50",C.gold,"Ranked #3–4"],["🔴 Top 2","$75",C.red,"Ranked #1–2"]].map(([l,v,c,d])=>(
+        {[["⚪ Unranked","$35",C.gray,"First-buy price (floor $10)"],["🔵 Top 8","$60",C.blue,"Ranked #5–8"],["🟡 Top 4","$90",C.gold,"Ranked #3–4"],["🟠 #2","$120","#ff6b35","Runner-up"],["🔴 #1","$150",C.red,"Champion · max $150"]].map(([l,v,c,d])=>(
           <div key={l} style={{ background:C.card, border:`2px solid ${c}`, borderRadius:8, padding:"10px 8px", textAlign:"center" }}>
             <div style={{ fontSize:11, color:C.gray, marginBottom:2 }}>{l}</div>
             <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
@@ -679,10 +1265,33 @@ function SharesView({ supporters, setSupporters, players, money, standings, play
         ))}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+        <div style={{ background:"#001a2a", border:`2px solid ${C.blue}`, borderRadius:10, padding:"10px 14px", textAlign:"center" }}>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:2 }}>⭐ PLAYER SELF-BUY</div>
+          <div style={{ fontSize:20, fontWeight:900, color:C.blue }}>$25/share</div>
+          <div style={{ fontSize:10, color:C.gray, marginTop:2 }}>First-dibs discount</div>
+        </div>
         <BigCard icon="💸" title="Share volume collected" value={$$(money.shareVolCollected)} color={C.purple} />
         <BigCard icon="📈" title="Current market value (active)" value={$$(money.activeMarketVal)} color={C.green} sub="what active shares worth today" />
         <BigCard icon="💰" title="Your 15% share fee" value={$$(money.opShareFee)} color={C.gold} />
       </div>
+      <Card title="🎯 Shares Sold Per Player (50 cap · Supporters ≤10/purchase · Player self-buy ≤6)" borderColor={C.blue}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
+          {names.map(n=>{
+            const tot = supporters.reduce((s,x)=>x.player===n?s+(parseInt(x.shares)||0):s,0);
+            const pct = Math.min(tot/SHARE_CAP_PER_PLAYER,1);
+            const color = pct>=1?C.red:pct>=0.75?C.gold:C.blue;
+            return (
+              <div key={n} style={{ background:C.dimBg, borderRadius:8, padding:"8px 10px" }}>
+                <div style={{ fontSize:11, fontWeight:700, marginBottom:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{n}</div>
+                <div style={{ background:C.cardBorder, borderRadius:4, height:6, marginBottom:4 }}>
+                  <div style={{ width:`${pct*100}%`, height:"100%", background:color, borderRadius:4, transition:"width 0.3s" }} />
+                </div>
+                <div style={{ fontSize:11, color, fontWeight:700 }}>{tot}/{SHARE_CAP_PER_PLAYER} — {$$(getSharePrice(n,standings,[],season))}/sh</div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
       <Card title="Supporter pool splits at end of Season 2 playoffs" icon="🥧" borderColor={C.purple}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
           {[["Champion's backers","70%",money.supPool1,C.gold],["2nd place backers","20%",money.supPool2,"#aaa"],["3rd place backers","10%",money.supPool3,"#cd7f32"]].map(([lbl,pct,val,c])=>(
@@ -695,48 +1304,108 @@ function SharesView({ supporters, setSupporters, players, money, standings, play
         </div>
       </Card>
       <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
-        <div style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 60px 80px 80px 90px 90px 80px", gap:4, padding:"10px 10px", background:C.dimBg }}>
+        <div style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 70px 80px 80px 90px 90px 90px", gap:4, padding:"10px 10px", background:C.dimBg }}>
           {["#","Supporter","Backing","Shares","Paid $","Mkt $","Gain","Playoff $","Status"].map(h=>(
             <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center", lineHeight:1.3 }}>{h}</div>
           ))}
         </div>
-        {supporters.slice(0, Math.max(filled+4,6)).map((s,i)=>{
-          const shares     = parseInt(s.shares)||0;
-          const paidPrice  = s.pricePaid||25;
-          const mktPrice   = getSharePrice(s.player, standings);
-          const totalPaid  = shares * paidPrice;
-          const totalMkt   = shares * mktPrice;
-          const gain       = totalMkt - totalPaid;
-          const playoutPPS = getPlayoffPayout(s.player, playoffs);
-          const finalOut   = shares * playoutPPS;
-          const pc         = mktPrice===75?C.red:mktPrice===50?C.gold:mktPrice===35?C.blue:C.gray;
-          return (
-            <div key={s.id} style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 60px 80px 80px 90px 90px 80px", gap:4, padding:"8px 10px", background:s.cashedS1?"#0a1a0a":i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center", opacity:s.cashedS1?0.55:1 }}>
-              <div style={{ fontSize:11, color:C.gray, textAlign:"center" }}>{i+1}</div>
-              <input value={s.name} onChange={e=>updSupp(i,"name",e.target.value)} placeholder="Supporter…" style={{ ...textInp, fontSize:12 }} disabled={s.cashedS1} />
-              <select value={s.player} onChange={e=>{ const price = getSharePrice(e.target.value, standings); updSupp(i,"player",e.target.value); if (!s.shares || s.shares===0) updSupp(i,"pricePaid",price); }} style={{ ...selStyle, fontSize:12 }} disabled={s.cashedS1}>
-                <option value="">— pick player —</option>
-                {names.map(n=><option key={n} value={n}>{n}</option>)}
-              </select>
-              <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:3 }}>
-                <button onClick={()=>{ if(!s.cashedS1){ updSupp(i,"shares",Math.max(0,(parseInt(s.shares)||0)-1)); }}} style={{ ...btnSm, width:20, height:20, fontSize:13 }}>−</button>
-                <span style={{ minWidth:20, textAlign:"center", fontWeight:900, color:C.gold, fontSize:14 }}>{s.shares||0}</span>
-                <button onClick={()=>{ if(!s.cashedS1){ const p=getSharePrice(s.player,standings); if(!s.shares||s.shares===0) updSupp(i,"pricePaid",p); updSupp(i,"shares",Math.min(30,(parseInt(s.shares)||0)+1)); }}} style={{ ...btnSm, width:20, height:20, fontSize:13 }}>+</button>
+        {(() => {
+          // Per-player share totals for cap enforcement
+          const playerTotals = {};
+          supporters.forEach(s => {
+            if (s.player) playerTotals[s.player] = (playerTotals[s.player]||0) + (parseInt(s.shares)||0);
+          });
+          return supporters.slice(0, Math.max(filled+4,6)).map((s,i) => {
+            const shares     = parseInt(s.shares)||0;
+            const paidPrice  = s.pricePaid||30;
+            const mktPrice   = getSharePrice(s.player, standings);
+            const totalPaid  = shares * paidPrice;
+            const totalMkt   = shares * mktPrice;
+            const gain       = totalMkt - totalPaid;
+            const playoutPPS = getPlayoffPayout(s.player, playoffs);
+            const finalOut   = shares * playoutPPS;
+            const pc         = mktPrice===200?C.red:mktPrice===150?"#ff6b35":mktPrice===100?C.gold:mktPrice===60?C.blue:C.gray;
+            const playerTotal = playerTotals[s.player]||0;
+            const playerAtCap = s.player && playerTotal >= SHARE_CAP_PER_PLAYER;
+            const atPurchaseMax = shares >= SHARES_PER_PURCHASE_MAX;
+            const canBuyMore = !s.cashedS1 && !s.lockedUntilMove && !playerAtCap && !atPurchaseMax;
+            return (
+              <div key={s.id} style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 70px 80px 80px 90px 90px 90px", gap:4, padding:"8px 10px", background:s.cashedS1?"#0a1a0a":s.lockedUntilMove?"#1a0a00":i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center", opacity:s.cashedS1?0.55:1 }}>
+                <div style={{ fontSize:11, color:C.gray, textAlign:"center" }}>{i+1}</div>
+                <input value={s.name} onChange={e=>updSupp(i,"name",e.target.value)} placeholder="Supporter…" style={{ ...textInp, fontSize:12 }} disabled={s.cashedS1} />
+                <div>
+                  <select value={s.player} onChange={e=>{ const base = s.selfBuy ? PLAYER_SELF_BUY_PRICE : getSharePrice(e.target.value, standings); const price = s.salvageType==="discount" ? Math.max(5,base-SALVAGE_DISCOUNT) : base; updSupp(i,"player",e.target.value); if (!s.shares || s.shares===0) updSupp(i,"pricePaid",price); }} style={{ ...selStyle, fontSize:12, width:"100%" }} disabled={s.cashedS1}>
+                    <option value="">— pick player —</option>
+                    {names.map(n=>{
+                      const tot = playerTotals[n]||0;
+                      return <option key={n} value={n}>{n} ({tot}/{SHARE_CAP_PER_PLAYER})</option>;
+                    })}
+                  </select>
+                  {!s.cashedS1 && (
+                    <button onClick={()=>{
+                      const nowSelf = !s.selfBuy;
+                      updSupp(i,"selfBuy",nowSelf);
+                      if(s.shares===0) updSupp(i,"pricePaid", nowSelf ? PLAYER_SELF_BUY_PRICE : getSharePrice(s.player,standings));
+                    }} style={{ marginTop:3, background:s.selfBuy?"#001a2a":"transparent", border:`1px solid ${s.selfBuy?C.blue:C.cardBorder}`, color:s.selfBuy?C.blue:C.gray, borderRadius:5, padding:"2px 5px", cursor:"pointer", fontSize:9, fontWeight:700, fontFamily:"inherit" }}>
+                      {s.selfBuy ? "⭐ SELF $25" : "self buy?"}
+                    </button>
+                  )}
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <button onClick={()=>{ if(!s.cashedS1){ updSupp(i,"shares",Math.max(0,(parseInt(s.shares)||0)-1)); if(s.lockedUntilMove) updSupp(i,"lockedUntilMove",false); }}} style={{ ...btnSm, width:20, height:20, fontSize:13 }}>−</button>
+                    <span style={{ minWidth:20, textAlign:"center", fontWeight:900, color:atPurchaseMax?C.red:C.gold, fontSize:14 }}>{shares}</span>
+                    <button onClick={()=>{
+                      if(!s.cashedS1 && !s.lockedUntilMove && !playerAtCap) {
+                        const newShares = Math.min(SHARES_PER_PURCHASE_MAX,(parseInt(s.shares)||0)+1);
+                        const base = s.selfBuy ? PLAYER_SELF_BUY_PRICE : getSharePrice(s.player, standings);
+                        const p = s.salvageType==="discount" ? Math.max(5,base-SALVAGE_DISCOUNT) : base;
+                        if(!s.shares||s.shares===0) updSupp(i,"pricePaid",p);
+                        updSupp(i,"shares",newShares);
+                        if (newShares >= SHARES_PER_PURCHASE_MAX) updSupp(i,"lockedUntilMove",true);
+                      }
+                    }} style={{ ...btnSm, width:20, height:20, fontSize:13, opacity:canBuyMore?1:0.3 }}>+</button>
+                  </div>
+                  <div style={{ fontSize:9, color:atPurchaseMax?C.red:C.gray, textAlign:"center" }}>{shares}/{SHARES_PER_PURCHASE_MAX} max</div>
+                </div>
+                <div style={{ textAlign:"center", fontSize:12, color:C.gray }}>{totalPaid>0?$$(totalPaid):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:pc }}>{totalMkt>0?$$(totalMkt):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:gain>0?C.green:gain<0?C.red:C.gray }}>{gain>0?`+${$$(gain)}`:gain<0?$$(gain):"—"}</div>
+                <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:finalOut>0?C.purple:C.gray }}>{finalOut>0?$$(finalOut):"—"}</div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                  {s.cashedS1 ? (
+                    <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ Cashed S1</span>
+                  ) : s.salvaged ? (
+                    <div style={{ textAlign:"center" }}>
+                      {s.salvageType==="cash" ? (
+                        <span style={{ fontSize:10, color:C.green, fontWeight:700 }}>💵 Salvaged<br/>(+{$$(shares*SALVAGE_CASH)})</span>
+                      ) : (
+                        <span style={{ fontSize:10, color:C.blue, fontWeight:700 }}>🎟 S2 Discount<br/>(–${SALVAGE_DISCOUNT}/sh)</span>
+                      )}
+                    </div>
+                  ) : s.lockedUntilMove ? (
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                      <span style={{ fontSize:10, color:C.red, fontWeight:700 }}>🔒 LOCKED</span>
+                      <button onClick={()=>{ updSupp(i,"lockedUntilMove",false); updSupp(i,"shares",0); updSupp(i,"pricePaid",getSharePrice(s.player,standings)); }} style={{ background:"#2a0010", border:`1px solid ${C.red}`, color:C.red, borderRadius:6, padding:"3px 6px", cursor:"pointer", fontSize:9, fontWeight:700, fontFamily:"inherit" }}>Player Moved ✓</button>
+                    </div>
+                  ) : playerAtCap ? (
+                    <span style={{ fontSize:10, color:C.red, fontWeight:700 }}>CAP FULL</span>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                      <button onClick={()=>cashOut(i)} style={{ background:"#2a1a00", border:`1px solid ${C.gold}`, color:C.gold, borderRadius:6, padding:"3px 6px", cursor:"pointer", fontSize:9, fontWeight:700, fontFamily:"inherit" }}>Cash S1</button>
+                      {shares>0 && (
+                        <div style={{ display:"flex", gap:3 }}>
+                          <button onClick={()=>{ updSupp(i,"salvaged",true); updSupp(i,"salvageType","cash"); }} style={{ background:"#001a0a", border:`1px solid ${C.green}`, color:C.green, borderRadius:5, padding:"2px 4px", cursor:"pointer", fontSize:8, fontWeight:700, fontFamily:"inherit" }} title="Get $5 back per share">💵 $5/sh</button>
+                          <button onClick={()=>{ updSupp(i,"salvaged",true); updSupp(i,"salvageType","discount"); }} style={{ background:"#00102a", border:`1px solid ${C.blue}`, color:C.blue, borderRadius:5, padding:"2px 4px", cursor:"pointer", fontSize:8, fontWeight:700, fontFamily:"inherit" }} title="Get $10 off per share next season">🎟 $10 off</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div style={{ textAlign:"center", fontSize:12, color:C.gray }}>{totalPaid>0?$$(totalPaid):"—"}</div>
-              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:pc }}>{totalMkt>0?$$(totalMkt):"—"}</div>
-              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:gain>0?C.green:gain<0?C.red:C.gray }}>{gain>0?`+${$$(gain)}`:gain<0?$$(gain):"—"}</div>
-              <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:finalOut>0?C.purple:C.gray }}>{finalOut>0?$$(finalOut):"—"}</div>
-              <div style={{ display:"flex", justifyContent:"center" }}>
-                {s.cashedS1 ? (
-                  <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ Cashed S1</span>
-                ) : (
-                  <button onClick={()=>cashOut(i)} style={{ background:"#2a1a00", border:`1px solid ${C.gold}`, color:C.gold, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:10, fontWeight:700, fontFamily:"inherit" }}>Cash S1</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
         <div style={{ background:"#0a0a1a", border:`2px solid ${C.purple}`, padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span style={{ fontSize:14, fontWeight:700 }}>Total share volume collected:</span>
           <span style={{ fontSize:22, fontWeight:900, color:C.purple }}>{$$(money.shareVolCollected)}</span>
@@ -755,19 +1424,19 @@ function PlayoffsView({ standings, playoffs, setPlayoffs }) {
     <div>
       <PageTitle icon="🥊" title="Playoffs — After Season 2" desc="Top 8 from Season 2 standings. Separate prize money. All shares cash out after this." />
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
-        <BigCard icon="🏆" title="Playoff Champion" value="$600" color={C.gold} sub="on top of any season prizes" />
-        <BigCard icon="🥈" title="Playoff Runner-Up" value="$300" color="#aaa" />
-        <BigCard icon="🥉" title="Playoff 3rd Place" value="$100" color="#cd7f32" />
+        <BigCard icon="🏆" title="Playoff Champion" value={$$(PLAYOFF_PRIZES.p1)} color={C.gold} sub="on top of any season prizes" />
+        <BigCard icon="🥈" title="Playoff Runner-Up" value={$$(PLAYOFF_PRIZES.p2)} color="#aaa" />
+        <BigCard icon="🥉" title="Playoff 3rd Place" value={$$(PLAYOFF_PRIZES.p3)} color="#cd7f32" />
       </div>
       <Card title="Max earnings across everything" icon="💰" borderColor={C.green}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <div>
-            <MRow label="🥇 Season 1 — 1st place" value="$1,000" />
-            <MRow label="🥇 Season 2 — 1st place" value="$1,000" />
-            <MRow label="🏆 Playoff Champion"      value="$600" color={C.gold} />
+            <MRow label="🥇 Season 1 — 1st place" value={$$(SEASON_PRIZES.p1)} />
+            <MRow label="🥇 Season 2 — 1st place" value={$$(SEASON_PRIZES.p1)} />
+            <MRow label="🏆 Playoff Champion"      value={$$(PLAYOFF_PRIZES.p1)} color={C.gold} />
             <div style={{ display:"flex", justifyContent:"space-between", padding:"12px 0 0" }}>
               <span style={{ fontWeight:900, fontSize:15 }}>Maximum total</span>
-              <span style={{ fontWeight:900, fontSize:22, color:C.green }}>$2,600</span>
+              <span style={{ fontWeight:900, fontSize:22, color:C.green }}>{$$(SEASON_PRIZES.p1*2+PLAYOFF_PRIZES.p1)}</span>
             </div>
           </div>
           <div style={{ background:C.dimBg, borderRadius:8, padding:12 }}>
@@ -856,6 +1525,9 @@ function MoneyView({ money }) {
         <Card title="💵 Revenue In" borderColor={C.green}>
           <MRow label="Season 1 base revenue" value={$$(money.s1base)} />
           <MRow label="Season 2 base revenue" value={$$(money.s2base)} />
+          <MRow label="Season 3 playoffs revenue" value={$$(money.s3base||0)} />
+          <MRow label="In-House leagues (reg + weekly dues)" value={$$(money.inHouseRevenue)} color={C.green} />
+          <MRow label="Season 2 base revenue" value={$$(money.s2base)} />
           <MRow label="Total base revenue" value={$$(money.totalBase)} color={C.green} big />
           <div style={{ height:10 }} />
           <MRow label="Share volume collected" value={$$(money.shareVolCollected)} />
@@ -868,8 +1540,9 @@ function MoneyView({ money }) {
           <div style={{ height:8 }} />
           <MRow label="Season prizes × 2 seasons" value={$$(money.seasonPayouts)} />
           <MRow label="Playoff prizes" value={$$(money.playoffPayouts)} color={C.purple} />
-          <MRow label="6-Ball prizes" value={$$(money.sixPayouts)} />
           <MRow label="Supporter prize pool" value={$$(money.supPool)} />
+          <MRow label="Participation prizes (×2)" value={$$(money.participationPayouts)} />
+          <MRow label="Player share cuts (20%)" value={$$(money.playerShareCuts)} color={C.purple} />
         </Card>
       </div>
       <Card title="🧮 Your Profit — Step by Step" borderColor={C.gold}>
@@ -877,7 +1550,10 @@ function MoneyView({ money }) {
         <MRow label="– Bar cut (5%)" value={`– ${$$(money.barCut)}`} color={C.red} indent />
         <MRow label="– Season prizes (×2)" value={`– ${$$(money.seasonPayouts)}`} color={C.red} indent />
         <MRow label="– Playoff prizes" value={`– ${$$(money.playoffPayouts)}`} color={C.red} indent />
-        <MRow label="– 6-Ball prizes" value={`– ${$$(money.sixPayouts)}`} color={C.red} indent />
+        <MRow label="– Participation prizes (×2)" value={`– ${$$(money.participationPayouts)}`} color={C.red} indent />
+        <MRow label="– Player share cuts (20%)" value={`– ${$$(money.playerShareCuts)}`} color={C.red} indent />
+        <MRow label="– Salvage cash buybacks" value={`– ${$$(money.salvageCashOut)}`} color={C.red} indent />
+        <MRow label="+ In-House leagues (reg + dues)" value={`+ ${$$(money.inHouseRevenue)}`} color={C.green} indent />
         <MRow label="= Base Profit" value={$$(money.baseProfit)} color={C.blue} big />
         <MRow label="+ Your 15% share fee" value={`+ ${$$(money.opShareFee)}`} color={C.green} indent />
         <MRow label="– Bar share cut (2%)" value={`– ${$$(money.barShareCut)}`} color={C.red} indent />
@@ -896,7 +1572,7 @@ function MoneyView({ money }) {
   );
 }
 // ─── P&L ALL STAKEHOLDERS ────────────────────────────────────────────────────
-function PnLView({ s1players, s2players, s1standings, s2standings, supporters, playoffs, sixRanked, money }) {
+function PnLView({ s1players, s2players, s1standings, s2standings, supporters, playoffs, money }) {
   const allPlayerNames = [...new Set([
     ...s1players.map(p=>p.name).filter(Boolean),
     ...s2players.map(p=>p.name).filter(Boolean),
@@ -908,12 +1584,11 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
     const s2reg   = s2p.paid ? 150 : 0;
     const s1weeks = (parseInt(s1p.weeksPaid)||0)*25;
     const s2weeks = (parseInt(s2p.weeksPaid)||0)*25;
-    const sixFee  = s1p.fastTime ? 30 : 0;
-    const totalIn = s1reg + s2reg + s1weeks + s2weeks + sixFee;
+    const totalIn = s1reg + s2reg + s1weeks + s2weeks;
     const s1rank = s1standings.findIndex(s=>s.name===name);
     const s2rank = s2standings.findIndex(s=>s.name===name);
-    const s1prize = s1rank===0?1000:s1rank===1?500:s1rank===2?250:0;
-    const s2prize = s2rank===0?1000:s2rank===1?500:s2rank===2?250:0;
+    const s1prize = s1rank===0?SEASON_PRIZES.p1:s1rank===1?SEASON_PRIZES.p2:s1rank===2?SEASON_PRIZES.p3:0;
+    const s2prize = s2rank===0?SEASON_PRIZES.p1:s2rank===1?SEASON_PRIZES.p2:s2rank===2?SEASON_PRIZES.p3:0;
     const champ = playoffs.find(m=>m.round.includes("Championship"));
     const sf1   = playoffs.find(m=>m.round.includes("Semifinal 1"));
     const sf2   = playoffs.find(m=>m.round.includes("Semifinal 2"));
@@ -921,21 +1596,32 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
     const s1w = sf1   ? getWinner(sf1)   : null;
     const s2w = sf2   ? getWinner(sf2)   : null;
     let playoffPrize = 0;
-    if (cw===name) playoffPrize = 600;
-    else if (champ && (champ.a===name||champ.b===name)) playoffPrize = 300;
-    else if (s1w===name||s2w===name) playoffPrize = 100;
-    const sixEntry = sixRanked.find(r=>r.name===name);
-    const sixPrize = sixEntry ? sixEntry.prize : 0;
-    const totalOut = s1prize + s2prize + playoffPrize + sixPrize;
-    const net      = totalOut - totalIn;
-    return { name, totalIn, s1prize, s2prize, playoffPrize, sixPrize, totalOut, net, s1rank, s2rank };
+    if (cw===name) playoffPrize = PLAYOFF_PRIZES.p1;
+    else if (champ && (champ.a===name||champ.b===name)) playoffPrize = PLAYOFF_PRIZES.p2;
+    else if (s1w===name||s2w===name) playoffPrize = PLAYOFF_PRIZES.p3;
+    const s1rank2 = s1standings.findIndex(s=>s.name===name);
+    const s2rank2 = s2standings.findIndex(s=>s.name===name);
+    const s1participation = s1rank2>=0 ? (PARTICIPATION_PRIZES[s1rank2]||15) : 0;
+    const s2participation = s2rank2>=0 ? (PARTICIPATION_PRIZES[s2rank2]||15) : 0;
+    // In-house league cost
+    const calcIH = (pp) => {
+      const c=[pp.inLeague1||false,pp.inLeague2||false,pp.inLeague3||false].filter(Boolean).length;
+      if(!c) return 0;
+      const reg = pp.inLeagueRegPaid?(c===3?INHOUSE_REG_BUNDLE:c*INHOUSE_REG_FEE):0;
+      const wk  = c===3?INHOUSE_WEEKLY_BUNDLE:c*INHOUSE_WEEKLY_FEE;
+      return reg + (parseInt(pp.inLeagueWeeksPaid)||0)*wk;
+    };
+    const inhouseCost = calcIH(s1p) + calcIH(s2p);
+    const totalOut = s1prize + s2prize + playoffPrize + s1participation + s2participation;
+    const net      = totalOut - totalIn - inhouseCost;
+    return { name, totalIn: totalIn+inhouseCost, s1prize, s2prize, playoffPrize, totalOut, net, s1rank, s2rank };
   });
   const activeSupp = supporters.filter(s=>s.name||s.shares>0);
   const suppRows = activeSupp.map(s => {
     const shares     = parseInt(s.shares)||0;
-    const totalIn    = shares * (s.pricePaid||25);
+    const totalIn    = shares * (s.pricePaid||30);
     const playoutPPS = getPlayoffPayout(s.player, playoffs);
-    const totalOut   = s.cashedS1 ? shares * (s.pricePaid||25) : shares * playoutPPS;
+    const totalOut   = s.cashedS1 ? shares * (s.pricePaid||30) : shares * playoutPPS;
     const net = totalOut - totalIn;
     return { ...s, shares, totalIn, totalOut, net, playoutPPS };
   });
@@ -957,8 +1643,8 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
         </div>
         <div style={{ background:C.card, border:`2px solid ${C.gold}`, borderRadius:10, padding:14, textAlign:"center" }}>
           <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>PLAYER PRIZES PAID</div>
-          <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>{$$(money.seasonPayouts + money.playoffPayouts + money.sixPayouts)}</div>
-          <div style={{ fontSize:11, color:C.gray }}>seasons + playoffs + 6-ball</div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.gold }}>{$$(money.seasonPayouts + money.playoffPayouts + money.participationPayouts)}</div>
+          <div style={{ fontSize:11, color:C.gray }}>seasons + playoffs + participation</div>
         </div>
         <div style={{ background:C.card, border:`2px solid ${C.purple}`, borderRadius:10, padding:14, textAlign:"center" }}>
           <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>SUPPORTER POOL</div>
@@ -973,8 +1659,8 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
       </div>
       {(filter==="all"||filter==="players") && (
         <Card title="👤 Players — Cost In vs Prizes Out" borderColor={C.gold}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 70px 80px 90px", gap:6, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
-            {["Player","Cost In","S1 Prize","S2 Prize","Playoff","6-Ball","Total Out","Net P&L"].map(h=>(
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 80px 90px", gap:6, padding:"8px 0", borderBottom:`2px solid ${C.cardBorder}`, marginBottom:4 }}>
+            {["Player","Cost In","S1 Prize","S2 Prize","Playoff","Total Out","Net P&L"].map(h=>(
               <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
             ))}
           </div>
@@ -984,13 +1670,12 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
             const netColor = p.net > 0 ? C.green : p.net < 0 ? C.red : C.gray;
             const netBg    = p.net > 0 ? "#002a16" : p.net < 0 ? "#2a0010" : "transparent";
             return (
-              <div key={p.name} style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 70px 80px 90px", gap:6, padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+              <div key={p.name} style={{ display:"grid", gridTemplateColumns:"1fr 70px 70px 70px 70px 80px 90px", gap:6, padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
                 <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
                 <div style={{ textAlign:"center", fontSize:12, color:C.red }}>–{$$(p.totalIn)}</div>
                 <div style={{ textAlign:"center", fontSize:12, color:p.s1prize>0?C.gold:C.gray, fontWeight:p.s1prize>0?700:400 }}>{p.s1prize>0?$$(p.s1prize):"—"}</div>
                 <div style={{ textAlign:"center", fontSize:12, color:p.s2prize>0?C.gold:C.gray, fontWeight:p.s2prize>0?700:400 }}>{p.s2prize>0?$$(p.s2prize):"—"}</div>
                 <div style={{ textAlign:"center", fontSize:12, color:p.playoffPrize>0?C.purple:C.gray, fontWeight:p.playoffPrize>0?700:400 }}>{p.playoffPrize>0?$$(p.playoffPrize):"—"}</div>
-                <div style={{ textAlign:"center", fontSize:12, color:p.sixPrize>0?C.blue:C.gray, fontWeight:p.sixPrize>0?700:400 }}>{p.sixPrize>0?$$(p.sixPrize):"—"}</div>
                 <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.green }}>{p.totalOut>0?$$(p.totalOut):"—"}</div>
                 <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:netColor, background:netBg, borderRadius:6, padding:"3px 6px" }}>
                   {p.net>0?`+${$$(p.net)}`:p.net<0?$$(p.net):"$0"}
@@ -1018,7 +1703,7 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
                 <div style={{ textAlign:"center", fontSize:12, color:C.blue }}>{s.player||"—"}</div>
                 <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.gold }}>{s.shares}</div>
                 <div style={{ textAlign:"center", fontSize:12, color:C.red }}>–{$$(s.totalIn)}</div>
-                <div style={{ textAlign:"center", fontSize:12, color:s.playoutPPS>0?C.purple:C.gray, fontWeight:700 }}>{s.cashedS1 ? `$${s.pricePaid||25}` : s.playoutPPS>0 ? `$${s.playoutPPS}` : "TBD"}</div>
+                <div style={{ textAlign:"center", fontSize:12, color:s.playoutPPS>0?C.purple:C.gray, fontWeight:700 }}>{s.cashedS1 ? `$${s.pricePaid||30}` : s.playoutPPS>0 ? `$${s.playoutPPS}` : "TBD"}</div>
                 <div style={{ textAlign:"center", fontSize:13, fontWeight:700, color:C.green }}>{s.totalOut>0?$$(s.totalOut):"TBD"}</div>
                 <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:netColor, background:netBg, borderRadius:6, padding:"3px 6px" }}>
                   {s.cashedS1 ? (s.net===0?"$0":s.net>0?`+${$$(s.net)}`:$$(s.net)) : s.playoutPPS>0 ? (s.net>0?`+${$$(s.net)}`:$$(s.net)) : "TBD"}
@@ -1043,7 +1728,7 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
               </div>
               <div style={{ background:C.dimBg, borderRadius:8, padding:12, textAlign:"center" }}>
                 <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>COSTS OUT</div>
-                <div style={{ fontSize:16, fontWeight:900, color:C.red }}>–{$$(money.barCut + money.seasonPayouts + money.playoffPayouts + money.sixPayouts + money.barShareCut)}</div>
+                <div style={{ fontSize:16, fontWeight:900, color:C.red }}>–{$$(money.barCut + money.seasonPayouts + money.playoffPayouts + money.participationPayouts + money.playerShareCuts + money.barShareCut)}</div>
               </div>
               <div style={{ background:"#001a0a", borderRadius:8, padding:12, textAlign:"center", border:`2px solid ${C.green}` }}>
                 <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>NET PROFIT</div>
@@ -1075,7 +1760,7 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
   );
 }
 // ─── PLAYER BOARD ─────────────────────────────────────────────────────────────
-function PlayerBoardView({ standings, s1standings, s2standings, playoffs, supporters, sixRanked, season }) {
+function PlayerBoardView({ standings, s1standings, s2standings, playoffs, supporters, season }) {
   const finalMatch = playoffs.find(m=>m.round.includes("Championship"));
   const champ = finalMatch ? getWinner(finalMatch) : null;
   return (
@@ -1091,7 +1776,7 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
       <div style={{ marginBottom:24 }}>
         <div style={{ fontSize:13, color:C.gray, fontWeight:700, letterSpacing:2, textTransform:"uppercase", marginBottom:10 }}>💰 Share Prices Right Now</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-          {[["🔴 Top 2","$75",C.red],["🟡 Top 4","$50",C.gold],["🔵 Top 8","$35",C.blue],["⚪ Others","$25",C.gray]].map(([l,v,c])=>(
+          {[["🔴 #1","$200",C.red],["🟠 #2","$150","#ff6b35"],["🟡 Top 4","$100",C.gold],["🔵 Top 8","$60",C.blue],["⚪ Others","$30",C.gray]].map(([l,v,c])=>(
             <div key={l} style={{ background:C.card, border:`1px solid ${c}`, borderRadius:8, padding:"10px 8px", textAlign:"center" }}>
               <div style={{ fontSize:11, color:C.gray }}>{l}</div>
               <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}/share</div>
@@ -1112,7 +1797,7 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
                   <div style={{ fontSize:18, fontWeight:900, color:[C.gold,"#ccc","#cd7f32"][i], margin:"6px 0" }}>{standings[i].name}</div>
                   <div style={{ fontSize:13, color:C.gray }}>{standings[i].pts} pts</div>
                   <div style={{ marginTop:8, fontSize:11, color:C.gray }}>Season prize</div>
-                  <div style={{ fontSize:15, fontWeight:700, color:C.green }}>{$$([1000,500,250][i])}</div>
+                  <div style={{ fontSize:15, fontWeight:700, color:C.green }}>{$$([SEASON_PRIZES.p1,SEASON_PRIZES.p2,SEASON_PRIZES.p3][i])}</div>
                   <div style={{ marginTop:6, fontWeight:900, color:[C.red,C.gold,C.blue][i]||C.gray, fontSize:14 }}>
                     Shares: ${getSharePrice(standings[i].name,standings)}/each
                   </div>
@@ -1151,7 +1836,7 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
           <div>
             <div style={{ fontSize:11, color:C.gold, fontWeight:700, marginBottom:8 }}>📅 EACH SEASON</div>
-            {[["🥇 1st","$1,000"],["🥈 2nd","$500"],["🥉 3rd","$250"],["🏅 MVP","$150"]].map(([l,v])=>(
+            {[["🥇 1st",$$(SEASON_PRIZES.p1)],["🥈 2nd",$$(SEASON_PRIZES.p2)],["🥉 3rd",$$(SEASON_PRIZES.p3)],["🏅 MVP",$$(SEASON_PRIZES.mvp)]].map(([l,v])=>(
               <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
                 <span>{l}</span><span style={{ color:C.gold, fontWeight:700 }}>{v}</span>
               </div>
@@ -1166,12 +1851,6 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
             ))}
           </div>
           <div>
-            <div style={{ fontSize:11, color:C.blue, fontWeight:700, marginBottom:8 }}>⚡ 6-BALL</div>
-            {[["1st","$200"],["2nd","$100"],["3rd","$50"]].map(([l,v])=>(
-              <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:13 }}>
-                <span>⚡ {l}</span><span style={{ color:C.blue, fontWeight:700 }}>{v}</span>
-              </div>
-            ))}
             <div style={{ fontSize:11, color:C.purple, fontWeight:700, marginTop:10, marginBottom:6 }}>💰 SHARES PAYOUT/SHARE</div>
             {[["Champion","$100"],["Finalist","$60"],["Semifinal","$30"],["Quarterfinal","$10"]].map(([l,v])=>(
               <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:12 }}>
@@ -1181,7 +1860,7 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
           </div>
         </div>
         <div style={{ marginTop:12, background:"#001a10", borderRadius:8, padding:"12px 16px", fontSize:14, color:C.green, fontWeight:700, textAlign:"center" }}>
-          🏆 Max a player can win across both seasons: $2,600
+          🏆 Max a player can earn: $1,000 + $1,000 + $600 = $2,600
         </div>
       </div>
     </div>
@@ -1189,6 +1868,506 @@ function PlayerBoardView({ standings, s1standings, s2standings, playoffs, suppor
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+// ─── RULES VIEW ───────────────────────────────────────────────────────────────
+function RulesView() {
+  const [activeGame, setActiveGame] = React.useState('straight8');
+  const games = {
+    straight8: {
+      title: "Straight 8-Ball",
+      icon: "🎱",
+      color: C.blue,
+      vol: "×1.0 (base)",
+      obj: "Pocket all 7 of your group (solids or stripes) then legally pocket the 8-ball to win.",
+      rules: [
+        "Break: Cue ball must hit the rack. If you pocket a ball on the break, you keep shooting. 8-ball on break = re-rack (or spot, varies by house rules).",
+        "Groups assigned: First player to pocket a ball (non-8) after the break claims that group (solids 1–7 or stripes 9–15).",
+        "Legal shot: You must hit one of your own balls first. Ball or cue must contact a cushion after contact, OR pocket a ball.",
+        "Scratch: Opponent gets ball-in-hand anywhere on the table.",
+        "8-Ball: Call the pocket. You must pocket all your group first. Scratching on the 8 = loss. Pocketing 8 in wrong pocket = loss.",
+        "Win: Pocket the 8-ball legally after clearing your group.",
+      ]
+    },
+    bca8: {
+      title: "8-Ball — BCA Rules",
+      icon: "🔵",
+      color: C.purple,
+      vol: "×1.1",
+      obj: "Same as straight 8-ball with stricter fouls and ball-in-hand rules enforced tournament-style.",
+      rules: [
+        "Break requirements: At least 4 balls must hit cushions OR a ball must be pocketed. Failure = opponent's choice: re-rack or accept table as-is.",
+        "Ball-in-hand: After any foul, opponent places cue ball ANYWHERE on the table (not just behind the line).",
+        "Push-out rule: On the first shot after the break (before groups are decided), the shooter may push out. The opponent then decides to shoot or pass.",
+        "Open table: Before groups are decided, a legally pocketed 8-ball wins if all your group is also cleared. Otherwise spot the 8-ball.",
+        "Call-pocket: Only the 8-ball pocket must be called. All other balls are free — no need to call every shot.",
+        "Combination shots: Legal as long as you hit your ball first.",
+        "Loss of game: Pocket the 8-ball before clearing your group · Pocket 8-ball on break (re-rack in BCA) · Scratch on the 8-ball · 8-ball off the table.",
+        "Win: Legally pocket the 8-ball in the called pocket after clearing your entire group.",
+      ]
+    },
+    '9ball': {
+      title: "9-Ball",
+      icon: "9️⃣",
+      color: C.gold,
+      vol: "×1.2",
+      obj: "Hit balls in numerical order. Pocket the 9-ball (any time legally) to win.",
+      rules: [
+        "Object: Strike the lowest-numbered ball on the table first. You don't have to pocket it — just hit it first.",
+        "9-Ball anytime: If the 9-ball is legally pocketed (lowest ball hit first) on any shot — including the break — you WIN.",
+        "Break: Ball-in-hand behind the head string. Must strike the 1-ball first. Must pocket a ball OR drive 4 balls to cushions, or opponent may request re-rack.",
+        "Push-out (after break): Shooter can push out once. Opponent decides to shoot or give it back. No foul on a push-out.",
+        "Ball-in-hand: Any foul gives opponent ball-in-hand anywhere on the table.",
+        "Combination shots: Legal — as long as you contact the lowest-numbered ball first.",
+        "Jump & masse shots: Legal unless venue prohibits for table protection.",
+        "Win: Pocket the 9-ball on any legal shot.",
+      ]
+    },
+    '10ball': {
+      title: "10-Ball",
+      icon: "🔟",
+      color: C.red,
+      vol: "×1.3 (most volatile)",
+      obj: "Hit and pocket balls 1–10 in order. Must call every shot. Pocket the 10-ball to win.",
+      rules: [
+        "Object: Balls must be pocketed in numerical order, 1 through 10. The 10-ball wins the game.",
+        "Call every shot: Unlike 9-ball, you MUST call the ball AND the pocket for every shot. Accidental pockets are spotted (not scored).",
+        "Break: Must hit the 1-ball first. If the 10-ball is pocketed on the break it is spotted (does NOT win in most rulesets). Must pocket a ball or drive 4 to cushions.",
+        "No push-out: Push-out is NOT used in standard 10-ball. The break shooter must play a legal shot.",
+        "Ball-in-hand: Any foul gives opponent ball-in-hand anywhere on the table.",
+        "Spotted balls: Illegally pocketed balls (wrong order or un-called) are spotted on the foot spot.",
+        "Fouls: Failure to hit the lowest ball first · Scratch · Ball off table · Touching any ball illegally.",
+        "Win: Legally pocket the 10-ball in the called pocket, with balls played in correct order.",
+      ]
+    }
+  };
+  const g = games[activeGame];
+  return (
+    <div>
+      <PageTitle icon="📖" title="Official Game Rules" desc="Straight 8 · BCA 8-Ball · 9-Ball · 10-Ball — select a game to see the full ruleset." />
+      <Tip>Game type is set per match in the Matches tab. More complex games (9-ball, 10-ball) have higher stock volatility — bigger swings for winners AND losers.</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:20 }}>
+        {Object.entries(games).map(([k,v])=>(
+          <button key={k} onClick={()=>setActiveGame(k)} style={{ background:activeGame===k?v.color+"33":C.card, border:`2px solid ${activeGame===k?v.color:C.cardBorder}`, color:activeGame===k?v.color:C.gray, borderRadius:10, padding:"14px 10px", cursor:"pointer", fontFamily:"inherit", textAlign:"center" }}>
+            <div style={{ fontSize:28, marginBottom:4 }}>{v.icon}</div>
+            <div style={{ fontSize:12, fontWeight:700 }}>{v.title}</div>
+            <div style={{ fontSize:10, marginTop:2 }}>Vol {v.vol}</div>
+          </button>
+        ))}
+      </div>
+      <Card title={`${g.icon} ${g.title} — Full Rules`} borderColor={g.color} icon={g.icon}>
+        <div style={{ background:g.color+"11", border:`1px solid ${g.color}`, borderRadius:8, padding:"12px 16px", marginBottom:16 }}>
+          <div style={{ fontSize:11, color:g.color, fontWeight:700, marginBottom:4 }}>OBJECTIVE</div>
+          <div style={{ fontSize:14, color:C.white, fontWeight:700 }}>{g.obj}</div>
+          <div style={{ fontSize:11, color:g.color, marginTop:4 }}>Volatility multiplier: {g.vol}</div>
+        </div>
+        <ol style={{ paddingLeft:20, margin:0 }}>
+          {g.rules.map((r,i)=>(
+            <li key={i} style={{ fontSize:13, color:C.gray, lineHeight:1.8, marginBottom:6, borderBottom:`1px solid ${C.cardBorder}`, paddingBottom:6 }}>
+              {r}
+            </li>
+          ))}
+        </ol>
+      </Card>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <Card title="General Fouls (All Games)" borderColor={C.red} icon="⚠️">
+          {["Scratch — cue ball falls in pocket","No rail contact + no ball pocketed","Touching the cue ball with anything other than cue tip","Double-hit or push shot","Ball jumped off the table","Shooting before balls stop moving","Shooting out of turn"].map((r,i)=>(
+            <div key={i} style={{ fontSize:13, color:C.gray, padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}` }}>⚠️ {r}</div>
+          ))}
+        </Card>
+        <Card title="Stock Volatility by Game & Season" borderColor={C.gold} icon="📈">
+          <div style={{ fontSize:13, color:C.gray, marginBottom:12, lineHeight:1.8 }}>
+            Each win/loss moves a player's stock price. Harder game types and later seasons multiply the swing.
+          </div>
+          {[["Straight 8-Ball","×1.0","Base"],["8-Ball BCA","×1.1","+10% swing"],["9-Ball","×1.2","+20% swing"],["10-Ball","×1.3","+30% swing"],["Season 1","×1.0","Base season"],["Season 2","×1.5","50% bigger swings"],["Season 3 (Playoffs)","×2.5","Most volatile"]].map(([l,v,d])=>(
+            <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+              <span style={{ fontSize:13, color:C.gray }}>{l}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:C.gold }}>{v} <span style={{ color:C.gray, fontWeight:400, fontSize:11 }}>{d}</span></span>
+            </div>
+          ))}
+          <div style={{ marginTop:10, background:"#001a0a", border:`1px solid ${C.green}`, borderRadius:8, padding:"10px 14px", fontSize:12, color:C.green }}>
+            Off-Schedule match: ½ price impact (×0.5) — can still play and report, counts for fun + small stock move.
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── BARS VIEW ─────────────────────────────────────────────────────────────────
+function BarsView({ bars, setBars, s1players, s2players, s3players, s1standings, s2standings, s3standings, supporters, money, season, standings }) {
+  const [activeBar, setActiveBar] = React.useState(0);
+  const updBar = (i,k,v) => setBars(bs=>bs.map((b,idx)=>idx===i?{...b,[k]:v}:b));
+  const allPlayers = [...s1players,...s2players.filter(p=>!s1players.find(x=>x.name&&x.name===p.name)),...s3players.filter(p=>!s1players.find(x=>x.name&&x.name===p.name)&&!s2players.find(x=>x.name&&x.name===p.name))];
+  const getBarPlayers = (barId) => {
+    const bId = barId+1;
+    const names = new Set([...s1players,...s2players,...s3players].filter(p=>p.barId===bId&&p.name).map(p=>p.name));
+    return [...names];
+  };
+  const getBarRev = (barId) => {
+    const bId = barId+1;
+    const bp = (arr, regFee) => arr.filter(p=>p.barId===bId&&p.paid&&p.name).length * regFee;
+    const bw = (arr, wk) => arr.filter(p=>p.barId===bId&&p.name).reduce((s,p)=>s+(parseInt(p[wk])||0)*WEEK_FEE,0);
+    const s1r = bp(s1players,S1_REG); const s1w = bw(s1players,"weeksPaid");
+    const s2r = bp(s2players,S2_REG); const s2w = bw(s2players,"s2weeksPaid");
+    const s3r = bp(s3players,S3_REG); const s3w = bw(s3players,"s3weeksPaid");
+    const totalReg = s1r+s2r+s3r;
+    const ownerCut = Math.round(totalReg * BAR_REG_CUT);
+    return { s1r,s1w,s2r,s2w,s3r,s3w, totalReg, totalRevToOp:s1r+s1w+s2r+s2w+s3r+s3w, ownerCut };
+  };
+  const getBarStandings = (barId, stnd) => {
+    const bId = barId+1;
+    const names = new Set([...s1players,...s2players,...s3players].filter(p=>p.barId===bId&&p.name).map(p=>p.name));
+    return stnd.filter(p=>names.has(p.name));
+  };
+  const bar = bars[activeBar];
+  const barPlayers = getBarPlayers(activeBar);
+  const barRev = getBarRev(activeBar);
+  const barS1 = getBarStandings(activeBar, s1standings);
+  const barS2 = getBarStandings(activeBar, s2standings);
+  const barS3 = getBarStandings(activeBar, s3standings);
+  const barShares = bar.barShares || 0;
+  // Share value estimate: bar's share pool (hidden: operator doesn't show their P&L here)
+  const barShareEst = barShares * 75; // rough avg price
+  return (
+    <div>
+      <PageTitle icon="🏪" title="Bar Tabs — Per-Location View" desc="Each bar sees their players, standings, and their own revenue. Operator P&L is private." />
+      <Tip color={C.orange}>Assign players to bars in the Players tab. Each bar owner can view their own tab — they see THEIR numbers only, not the operator's total profit.</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+        {bars.map((b,i)=>(
+          <button key={i} onClick={()=>setActiveBar(i)} style={{ background:activeBar===i?C.red+"22":C.card, border:`3px solid ${activeBar===i?C.red:C.cardBorder}`, borderRadius:12, padding:"16px 14px", cursor:"pointer", fontFamily:"inherit", textAlign:"left" }}>
+            <div style={{ fontSize:24, marginBottom:4 }}>🏪</div>
+            <div style={{ fontSize:15, fontWeight:900, color:C.white }}>{b.name||`Bar ${i+1} — Pending`}</div>
+            <div style={{ fontSize:11, color:C.gray }}>{getBarPlayers(i).length} players assigned</div>
+            <div style={{ fontSize:11, color:C.green, marginTop:2 }}>Owner cut: {$$(getBarRev(i).ownerCut)}</div>
+          </button>
+        ))}
+      </div>
+      <Card title={`⚙️ Setup — ${bar.name||"Bar "+( activeBar+1)}`} borderColor={C.blue} icon="⚙️">
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div>
+            <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>Bar Name</div>
+            <input value={bar.name||""} onChange={e=>updBar(activeBar,"name",e.target.value)} placeholder="Bar name (confirm before publishing)..." style={{ ...textInp, fontSize:16, fontWeight:700 }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>Bar Owner / Contact Name</div>
+            <input value={bar.ownerName||""} onChange={e=>updBar(activeBar,"ownerName",e.target.value)} placeholder="Owner name..." style={{ ...textInp, fontSize:14 }} />
+          </div>
+        </div>
+        <div style={{ marginTop:14, background:"#001a2a", borderRadius:8, padding:"10px 14px", fontSize:12, color:C.blue }}>
+          💡 Bar owners can purchase shares in players — more shares they push, more they earn when those players climb. Bar share purchases tracked below.
+        </div>
+        <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:13, color:C.gray }}>Bar owner shares purchased:</span>
+          <button onClick={()=>updBar(activeBar,"barShares",Math.max(0,barShares-1))} style={btnSm}>−</button>
+          <span style={{ fontSize:18, fontWeight:900, color:C.gold, minWidth:30, textAlign:"center" }}>{barShares}</span>
+          <button onClick={()=>updBar(activeBar,"barShares",barShares+1)} style={btnSm}>+</button>
+          <span style={{ fontSize:12, color:C.gray }}>≈ {$$(barShareEst)} est. value</span>
+          <CheckBox checked={bar.barSharesPaid||false} onChange={v=>updBar(activeBar,"barSharesPaid",v)} label={bar.barSharesPaid?"✓ Paid":"Unpaid"} color={C.green} />
+        </div>
+      </Card>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+        <BigCard icon="👥" title="Players at This Bar" value={`${barPlayers.length}`} color={C.blue} />
+        <BigCard icon="💵" title="Bar Owner Revenue Cut" value={$$(barRev.ownerCut)} color={C.green} sub={`10% of $${barRev.totalReg} reg fees`} />
+        <BigCard icon="📈" title="Bar Shares Owned" value={`${barShares}`} color={C.gold} sub="more shares = more upside" />
+        <BigCard icon="💰" title="Est. Share Value" value={$$(barShareEst)} color={C.purple} sub="based on avg $75/share" />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+        {[{label:"Season 1",reg:barRev.s1r,wk:barRev.s1w,color:C.gold},{label:"Season 2",reg:barRev.s2r,wk:barRev.s2w,color:C.purple},{label:"S3 Playoffs",reg:barRev.s3r,wk:barRev.s3w,color:C.red}].map(({label,reg,wk,color})=>(
+          <div key={label} style={{ background:C.card, border:`1px solid ${color}`, borderRadius:10, padding:14 }}>
+            <div style={{ fontSize:12, fontWeight:700, color, marginBottom:8 }}>{label}</div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:4 }}><span style={{ color:C.gray }}>Reg collected</span><span style={{ color:C.white, fontWeight:700 }}>{$$(reg)}</span></div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}><span style={{ color:C.gray }}>Weekly dues</span><span style={{ color:C.white, fontWeight:700 }}>{$$(wk)}</span></div>
+            <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${C.cardBorder}`, display:"flex", justifyContent:"space-between", fontSize:13 }}><span style={{ color:C.gray }}>Total</span><span style={{ color:color, fontWeight:900 }}>{$$(reg+wk)}</span></div>
+          </div>
+        ))}
+      </div>
+      {barPlayers.length > 0 ? (
+        <>
+          <Card title={`📊 ${bar.name||"This Bar"} — Season Standings`} borderColor={C.blue}>
+            {[{s:1,data:barS1,color:C.gold},{s:2,data:barS2,color:C.purple},{s:3,data:barS3,color:C.red}].filter(({data})=>data.length>0).map(({s,data,color})=>(
+              <div key={s} style={{ marginBottom:12 }}>
+                <div style={{ fontSize:12, fontWeight:700, color, marginBottom:6 }}>Season {s}</div>
+                {data.map((p,i)=>(
+                  <div key={p.name} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+                    <span style={{ fontSize:13, color:i===0?color:C.gray }}>#{i+1} {p.name}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:C.red }}>{p.pts} pts</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {barS1.length===0&&barS2.length===0&&barS3.length===0 && <div style={{ color:C.gray, fontSize:13 }}>No standings yet — enter match results.</div>}
+          </Card>
+          <Card title="👥 Players at This Bar" borderColor={C.blue} icon="👥">
+            {barPlayers.map((n,i)=>{
+              const sp = getSharePrice(n, standings);
+              return (<div key={n} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${C.cardBorder}` }}>
+                <span style={{ fontSize:13, fontWeight:700 }}>{n}</span>
+                <span style={{ fontSize:13, color:C.gold, fontWeight:700 }}>{$$(sp)}/share</span>
+              </div>);
+            })}
+          </Card>
+        </>
+      ) : (
+        <Card><div style={{ textAlign:"center", padding:32, color:C.gray }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>🏪</div>
+          <div>No players assigned to this bar yet.<br/>Go to Players tab → set each player's Bar.</div>
+        </div></Card>
+      )}
+      <Card title="📊 Bar Owner Revenue Breakdown (YOUR numbers only)" borderColor={C.green} icon="💰">
+        <div style={{ background:"#001a0a", borderRadius:8, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.green }}>
+          This is what you see as bar owner. Operator's total P&L is private and not shown here.
+        </div>
+        <MRow label="Your cut of registrations (10% of player reg fees)" value={$$(barRev.ownerCut)} color={C.green} big />
+        <MRow label="Bar share appreciation (est.)" value={$$(barShareEst)} color={C.gold} />
+        <MRow label="Season 1 reg + weekly from your players" value={$$(barRev.s1r+barRev.s1w)} />
+        <MRow label="Season 2 reg + weekly from your players" value={$$(barRev.s2r+barRev.s2w)} />
+        <MRow label="S3 playoffs reg + weekly from your players" value={$$(barRev.s3r+barRev.s3w)} />
+        <div style={{ marginTop:12, background:"#0a1a0a", border:`1px solid ${C.green}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:C.green }}>
+          💡 Bar owners earn more by recruiting players, promoting share purchases, and running in-house leagues. Every additional player at your bar = more reg cut + more share upside.
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── MANUAL VIEW ───────────────────────────────────────────────────────────────
+function ManualView({ money, season, bars }) {
+  const [section, setSection] = React.useState('operator');
+  const sections = [
+    { id:'operator', label:'Operator Guide', icon:'⚙️', color:C.red },
+    { id:'player',   label:'Player Guide',   icon:'👤', color:C.blue },
+    { id:'barowner', label:'Bar Owner Guide', icon:'🏪', color:C.green },
+  ];
+  return (
+    <div>
+      <PageTitle icon="📗" title="Master Manual" desc="Complete guide for operators, players, and bar owners." />
+      <div style={{ display:"flex", gap:10, marginBottom:20 }}>
+        {sections.map(s=>(
+          <button key={s.id} onClick={()=>setSection(s.id)} style={{ flex:1, background:section===s.id?s.color+"33":C.card, border:`2px solid ${section===s.id?s.color:C.cardBorder}`, color:section===s.id?s.color:C.gray, borderRadius:10, padding:"14px 10px", cursor:"pointer", fontFamily:"inherit", textAlign:"center", fontWeight:700, fontSize:13 }}>
+            <div style={{ fontSize:24, marginBottom:4 }}>{s.icon}</div>
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {section==='operator' && (
+        <div>
+          <Card title="⚙️ Operator Guide — Full System Overview" borderColor={C.red} icon="⚙️">
+            <Tip color={C.red}>This section is for the league operator and partners only. Keep this tab private — bar owners and players do not need to see this.</Tip>
+            {[
+              ["🏗️ How the League is Structured",
+               ["3 seasons, 8 weeks each. S1 = lower prizes, S2 = bigger, S3 (playoffs) = biggest.",
+                "S1 players get FIRST PICK for S2 and S3 sign-ups — reward loyalty.",
+                "S1 and S2 first-place players enter S3 FREE. Second-place players pay $100 (half).",
+                "4 game types tracked per match: Straight 8 · BCA 8 · 9-Ball · 10-Ball.",
+                "Off-schedule matches can be reported — count at ½ price impact on shares."]
+              ],
+              ["💵 Revenue Streams",
+               [`Season 1: $${S1_REG}/player reg + $${WEEK_FEE}/week × 8 weeks per player.`,
+                `Season 2: $${S2_REG}/player reg + $${WEEK_FEE}/week × 8 weeks per player.`,
+                `Season 3: $${S3_REG}/player reg (1st place S1+S2 = FREE, 2nd = $${S3_REG_HALF}) + weekly.`,
+                "In-house leagues: $150 reg/league, $25/wk (bundle: $400 all 3, $65/wk — saves $50 + $10/wk).",
+                "Share trading: 15% operator fee on all share volume. Supporters buy at market price."]
+              ],
+              ["🏆 Prize Structure",
+               [`Season 1: 1st $${S1_PRIZES.p1} · 2nd $${S1_PRIZES.p2} · 3rd $${S1_PRIZES.p3} · MVP $${S1_PRIZES.mvp}`,
+                `Season 2: 1st $${S2_PRIZES.p1} · 2nd $${S2_PRIZES.p2} · 3rd $${S2_PRIZES.p3} · MVP $${S2_PRIZES.mvp}`,
+                `Season 3 Playoffs: 1st $${S3_PRIZES.p1} · 2nd $${S3_PRIZES.p2} · 3rd $${S3_PRIZES.p3} · MVP $${S3_PRIZES.mvp}`,
+                `Participation payouts guaranteed EVERY season — even last place earns $${PARTICIPATION_PRIZES[PARTICIPATION_PRIZES.length-1]}/season ($${PARTICIPATION_PRIZES[PARTICIPATION_PRIZES.length-1]*3} for all 3). Win big = more, but zero players go home with zero.`,
+                `Max a player can earn across all 3 seasons: $${S1_PRIZES.p1+S2_PRIZES.p1+S3_PRIZES.p1} (sweep all 3).`]
+              ],
+              ["📈 Share System",
+               [`Share price floor $${SHARE_MIN_PRICE}, ceiling $${SHARE_MAX_PRICE}. Rank sets base; exhibition + leagues move it.`,
+                `Players self-buy max ${PLAYER_SELF_BUY_MAX} shares at $${PLAYER_SELF_BUY_PRICE}/share (first-dibs discount).`,
+                `Supporters buy max ${SUPPORTER_BUY_MAX} shares per price change at market price.`,
+                "S3 is most volatile (×2.5). 10-Ball matches add ×1.3 on top. In-house leagues add further volatility.",
+                "Operator keeps 15% of all share trading volume — this is often the biggest revenue line.",
+                "Bar owners get 3% of trading volume at their location."]
+              ],
+              ["🏪 Bar Owner Relationship",
+               ["Bars get 10% of registration fees from their players (tracked per bar in Bar Tabs).",
+                "Bar owners can buy shares — more they push, more they earn from appreciation.",
+                "Bar owners see THEIR numbers only. Your total P&L is private.",
+                "In-house league revenue at their bar flows through to your P&L.",
+                "Goal: make it attractive enough for bars to drop other leagues and run yours exclusively."]
+              ],
+              ["🤝 Partner Split",
+               ["Net profit is split 4 ways among partners after all payouts and costs.",
+                "Track everything in Money tab and P&L tab for full breakdown.",
+                "Do NOT share the P&L tab with bar owners or players."]
+              ],
+            ].map(([title,bullets])=>(
+              <div key={title} style={{ marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:C.red, marginBottom:6 }}>{title}</div>
+                {bullets.map((b,i)=><div key={i} style={{ fontSize:13, color:C.gray, padding:"4px 0 4px 12px", borderLeft:`2px solid ${C.red}33`, marginBottom:4 }}>• {b}</div>)}
+              </div>
+            ))}
+          </Card>
+          <Card title="📊 Full P&L Math — 16 Players, All 3 Seasons" borderColor={C.gold} icon="📊">
+            <Tip color={C.gold}>All numbers assume 16 players in all 3 seasons. Shares assume 50% of cap sold at avg $62/share. Adjust in live tabs for actuals.</Tip>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:900, color:C.green, marginBottom:8, paddingBottom:6, borderBottom:`2px solid ${C.green}33` }}>REVENUE IN</div>
+                {[
+                  [`S1 Reg (16 × $${S1_REG})`, 16*S1_REG],
+                  [`S1 Weekly (16 × $${WEEK_FEE} × 8 wks)`, 16*WEEK_FEE*8],
+                  [`S2 Reg (16 × $${S2_REG})`, 16*S2_REG],
+                  [`S2 Weekly (16 × $${WEEK_FEE} × 8 wks)`, 16*WEEK_FEE*8],
+                  [`S3 Reg (2 free, 2×$${S3_REG_HALF}, 12×$${S3_REG})`, S3_REG_HALF*2 + S3_REG*12],
+                  [`S3 Weekly (16 × $${WEEK_FEE} × 8 wks)`, 16*WEEK_FEE*8],
+                  ["Share fee (15% × $49,600 est. vol)", Math.round(49600*OP_SHARE_FEE)],
+                  ["In-house leagues (8 players, 1 league, 8 wks)", 8*INHOUSE_REG_FEE + 8*INHOUSE_WEEKLY_FEE*8],
+                  ["Doubles reg (8 teams × 2 players × $150)", 8*2*TEAM_REG_PER_PERSON],
+                  ["Triples reg (6 teams × 3 players × $150)", 6*3*TEAM_REG_PER_PERSON],
+                ].map(([l,v])=>(
+                  <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:12 }}>
+                    <span style={{ color:C.gray }}>{l}</span>
+                    <span style={{ color:C.green, fontWeight:700 }}>{$$(v)}</span>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", fontSize:14, fontWeight:900 }}>
+                  <span style={{ color:C.white }}>TOTAL REVENUE IN</span>
+                  <span style={{ color:C.green }}>{$$(16*S1_REG + 16*WEEK_FEE*8 + 16*S2_REG + 16*WEEK_FEE*8 + S3_REG_HALF*2+S3_REG*12 + 16*WEEK_FEE*8 + Math.round(49600*OP_SHARE_FEE) + 8*INHOUSE_REG_FEE + 8*INHOUSE_WEEKLY_FEE*8 + 8*2*TEAM_REG_PER_PERSON + 6*3*TEAM_REG_PER_PERSON)}</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:900, color:C.red, marginBottom:8, paddingBottom:6, borderBottom:`2px solid ${C.red}33` }}>COSTS OUT</div>
+                {[
+                  [`S1 Prizes (1st $${S1_PRIZES.p1} + 2nd $${S1_PRIZES.p2} + 3rd $${S1_PRIZES.p3} + MVP $${S1_PRIZES.mvp})`, S1_PRIZES.p1+S1_PRIZES.p2+S1_PRIZES.p3+S1_PRIZES.mvp],
+                  [`S2 Prizes (1st $${S2_PRIZES.p1} + 2nd $${S2_PRIZES.p2} + 3rd $${S2_PRIZES.p3} + MVP $${S2_PRIZES.mvp})`, S2_PRIZES.p1+S2_PRIZES.p2+S2_PRIZES.p3+S2_PRIZES.mvp],
+                  [`S3 Prizes (1st $${S3_PRIZES.p1} + 2nd $${S3_PRIZES.p2} + 3rd $${S3_PRIZES.p3} + MVP $${S3_PRIZES.mvp})`, S3_PRIZES.p1+S3_PRIZES.p2+S3_PRIZES.p3+S3_PRIZES.mvp],
+                  [`Participation (all ${PARTICIPATION_PRIZES.length} players × 3 seasons, min $${PARTICIPATION_PRIZES[PARTICIPATION_PRIZES.length-1]}/ea)`, PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0)*3],
+                  [`Bar reg cut 10% (on $${16*S1_REG+16*S2_REG+S3_REG_HALF*2+S3_REG*12} reg)`, Math.round((16*S1_REG+16*S2_REG+S3_REG_HALF*2+S3_REG*12)*BAR_REG_CUT)],
+                  ["Doubles prizes (1st $800 + 2nd $400 + 3rd $200)", DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3],
+                  ["Triples prizes (1st $1,200 + 2nd $600 + 3rd $300)", TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3],
+                ].map(([l,v])=>(
+                  <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:`1px solid ${C.cardBorder}`, fontSize:12 }}>
+                    <span style={{ color:C.gray }}>{l}</span>
+                    <span style={{ color:C.red, fontWeight:700 }}>({$$(v)})</span>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", fontSize:14, fontWeight:900 }}>
+                  <span style={{ color:C.white }}>TOTAL COSTS</span>
+                  <span style={{ color:C.red }}>({$$(S1_PRIZES.p1+S1_PRIZES.p2+S1_PRIZES.p3+S1_PRIZES.mvp + S2_PRIZES.p1+S2_PRIZES.p2+S2_PRIZES.p3+S2_PRIZES.mvp + S3_PRIZES.p1+S3_PRIZES.p2+S3_PRIZES.p3+S3_PRIZES.mvp + PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0)*3 + Math.round((16*S1_REG+16*S2_REG+S3_REG_HALF*2+S3_REG*12)*BAR_REG_CUT) + DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3 + TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3)})</span>
+                </div>
+              </div>
+            </div>
+            {(()=>{
+              const totalIn  = 16*S1_REG + 16*WEEK_FEE*8 + 16*S2_REG + 16*WEEK_FEE*8 + S3_REG_HALF*2+S3_REG*12 + 16*WEEK_FEE*8 + Math.round(49600*OP_SHARE_FEE) + 8*INHOUSE_REG_FEE + 8*INHOUSE_WEEKLY_FEE*8 + 8*2*TEAM_REG_PER_PERSON + 6*3*TEAM_REG_PER_PERSON;
+              const prizes   = S1_PRIZES.p1+S1_PRIZES.p2+S1_PRIZES.p3+S1_PRIZES.mvp + S2_PRIZES.p1+S2_PRIZES.p2+S2_PRIZES.p3+S2_PRIZES.mvp + S3_PRIZES.p1+S3_PRIZES.p2+S3_PRIZES.p3+S3_PRIZES.mvp;
+              const partPay  = PARTICIPATION_PRIZES.reduce((s,v)=>s+v,0)*3;
+              const barCutAmt = Math.round((16*S1_REG+16*S2_REG+S3_REG_HALF*2+S3_REG*12)*BAR_REG_CUT);
+              const teamPrizesTotal = DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3;
+              const totalOut = prizes + partPay + barCutAmt + teamPrizesTotal;
+              const net      = totalIn - totalOut;
+              const perPartner = Math.round(net/4);
+              return (
+                <div style={{ marginTop:14, background:"#001a0a", border:`2px solid ${C.green}`, borderRadius:10, padding:"14px 16px" }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, textAlign:"center" }}>
+                    <div><div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>NET PROFIT</div><div style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(net)}</div></div>
+                    <div><div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>PER PARTNER (÷4)</div><div style={{ fontSize:22, fontWeight:900, color:C.gold }}>{$$(perPartner)}</div></div>
+                    <div><div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>PRIZES PAID OUT</div><div style={{ fontSize:22, fontWeight:900, color:C.red }}>{$$(prizes+teamPrizesTotal)}</div></div>
+                    <div><div style={{ fontSize:11, color:C.gray, marginBottom:4 }}>BAR OWNER TOTAL</div><div style={{ fontSize:22, fontWeight:900, color:C.blue }}>{$$(barCutAmt)}</div></div>
+                  </div>
+                  <div style={{ marginTop:10, fontSize:12, color:C.gray, textAlign:"center" }}>
+                    Assumes: 16 players · 50% shares sold · avg $62/share · 8 in-house players · 1 league · 8 wks. Add in-house bundles and more share volume to increase net.
+                  </div>
+                </div>
+              );
+            })()}
+          </Card>
+        </div>
+      )}
+      {section==='player' && (
+        <div>
+          <Card title="👤 Player Guide — Everything You Need to Know" borderColor={C.blue} icon="👤">
+            {[
+              ["🎱 The League",
+               ["3 seasons, 8 weeks each. You compete for prizes EVERY season — not just once.",
+                "Season 1 players get FIRST CHOICE to sign up for Season 2 and Season 3. Play in S1 to lock in your spot.",
+                "Win Season 1 or 2? You get FREE entry into the Season 3 playoffs.",
+                "Finish 2nd in S1 or S2? You pay only $100 for S3 (half price)."]
+              ],
+              ["💵 Your Fees",
+               [`Season 1: $${S1_REG} registration + $${WEEK_FEE}/week (8 weeks = $${S1_REG+WEEK_FEE*8} total max).`,
+                `Season 2: $${S2_REG} registration + $${WEEK_FEE}/week.`,
+                `Season 3 Playoffs: $${S3_REG} registration (or FREE/discounted if you placed top 2 in S1 or S2) + $${WEEK_FEE}/week.`,
+                "In-house leagues (optional): $150/league reg, $25/wk. Play all 3 bars → $400 reg, $65/wk bundle deal."]
+              ],
+              ["🏆 What You Can Win",
+               [`Season 1: 1st $${S1_PRIZES.p1} · 2nd $${S1_PRIZES.p2} · 3rd $${S1_PRIZES.p3} · MVP $${S1_PRIZES.mvp}`,
+                `Season 2: 1st $${S2_PRIZES.p1} · 2nd $${S2_PRIZES.p2} · 3rd $${S2_PRIZES.p3} · MVP $${S2_PRIZES.mvp}`,
+                `Season 3 Playoffs: 1st $${S3_PRIZES.p1} · 2nd $${S3_PRIZES.p2} · 3rd $${S3_PRIZES.p3} · MVP $${S3_PRIZES.mvp}`,
+                `Every player earns a participation prize every season. Last place still earns $${PARTICIPATION_PRIZES[PARTICIPATION_PRIZES.length-1]}/season. First place earns $${PARTICIPATION_PRIZES[0]} just for participation — on top of the 1st place season prize.`,
+                `Maximum you can earn across all seasons: $${S1_PRIZES.p1+S2_PRIZES.p1+S3_PRIZES.p1} (win everything).`]
+              ],
+              ["📈 Your Stock Price — What It Means",
+               [`Your share price starts at $${SHARE_MIN_PRICE} (unranked) and goes up to $${SHARE_MAX_PRICE} (ranked #1).`,
+                "People (supporters) buy shares in you — if you climb, their shares are worth more at cash-out.",
+                `You can buy up to ${PLAYER_SELF_BUY_MAX} shares of yourself at a discounted $${PLAYER_SELF_BUY_PRICE}/share.`,
+                "Exhibition wins push your price up. Losses bring it down. In-house leagues = bigger moves.",
+                "Season 3 is the most volatile — biggest price swings. Win big, or your shares swing hard either way."]
+              ],
+              ["🎮 Game Types",
+               ["Straight 8-Ball: Standard bar pool. Normal stock volatility.",
+                "BCA 8-Ball: Tournament rules, stricter fouls, ball-in-hand anywhere. +10% volatility.",
+                "9-Ball: Hit lowest ball first, pocket the 9 to win anytime. +20% volatility.",
+                "10-Ball: Like 9-ball but call EVERY shot. Hardest and most volatile (+30%)."]
+              ],
+            ].map(([title,bullets])=>(
+              <div key={title} style={{ marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:C.blue, marginBottom:6 }}>{title}</div>
+                {bullets.map((b,i)=><div key={i} style={{ fontSize:13, color:C.gray, padding:"4px 0 4px 12px", borderLeft:`2px solid ${C.blue}33`, marginBottom:4 }}>• {b}</div>)}
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+      {section==='barowner' && (
+        <div>
+          <Card title="🏪 Bar Owner Guide — How to Make Money With This League" borderColor={C.green} icon="🏪">
+            <div style={{ background:"#001a0a", border:`1px solid ${C.green}`, borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:C.green }}>
+              ✅ This guide covers YOUR numbers. Operator finances are handled separately.
+            </div>
+            {[
+              ["💰 How You Earn",
+               ["You get 10% of every registration fee paid by players assigned to YOUR bar.",
+                `That means: Season 1 ($${S1_REG}/player × 10%) + Season 2 ($${S2_REG}/player × 10%) + S3 ($${S3_REG}/player × 10%) = $${Math.round((S1_REG+S2_REG+S3_REG)*0.10)}/player across all 3 seasons.`,
+                "You also get 3% of all share trading volume that happens through your bar.",
+                "In-house league revenue at your bar flows a cut back to you.",
+                "Share ownership: you can BUY player shares — more shares you promote and sell, the more you earn when those players do well."]
+              ],
+              ["📈 The Share Opportunity",
+               [`Buy shares in players at $${SHARE_MIN_PRICE} to $${SHARE_MAX_PRICE}. If your player hits #1 ($${SHARE_MAX_PRICE}/share), you profit the difference.`,
+                "Season 3 (playoffs) is most volatile — biggest gains possible for smart early buyers.",
+                "Encourage players at your bar to participate in more leagues → their stock goes higher AND swings harder → share value increases.",
+                "No cap on how many shares you can buy as a bar owner. More you invest in your players, more you stand to earn."]
+              ],
+              ["🎯 How to Maximize Your Revenue",
+               ["Recruit as many players as possible — every player = reg cut every season.",
+                "Run your bar as a league venue — steady weekly traffic from match nights.",
+                "Promote the share system to your bar customers — they buy shares, you get 3% of that volume.",
+                "Host in-house league nights — players playing your in-house league pay weekly + reg, generates extra cut.",
+                "Win over your regulars: if they're already playing pool, this formalizes it and pays everyone."]
+              ],
+              ["📊 Example Math (10 players at your bar, 3 seasons)",
+               [`Reg cut: 10 × ($${S1_REG}+$${S2_REG}+$${S3_REG}) × 10% = $${Math.round(10*(S1_REG+S2_REG+S3_REG)*0.10)} over all 3 seasons.`,
+                `If you buy 50 shares at $${SHARE_FIRST_BUY_PRICE} avg = $${50*35} in. If top player hits $${SHARE_MAX_PRICE} → your shares = $${50*150}. Net gain: $${50*150-50*35}.`,
+                "Weekly traffic: 10+ pool players × 3 seasons × 8 weeks = 240+ customer visits minimum.",
+                "No overhead from running a league yourself — prizes, tracking, and administration are handled by the operator."]
+              ],
+            ].map(([title,bullets])=>(
+              <div key={title} style={{ marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:C.green, marginBottom:6 }}>{title}</div>
+                {bullets.map((b,i)=><div key={i} style={{ fontSize:13, color:C.gray, padding:"4px 0 4px 12px", borderLeft:`2px solid ${C.green}33`, marginBottom:4 }}>• {b}</div>)}
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 </script>
 </body>
 </html>
