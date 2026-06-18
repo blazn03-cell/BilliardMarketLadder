@@ -72,8 +72,8 @@ const WEEK_COUNT   = 8;
 // ── Season Prizes (S1 lower, S2 bigger, S3 playoffs biggest) ──
 const S1_PRIZES = { p1:850,  p2:450,  p3:250,  p4:100,  mvp:75  };
 const S2_PRIZES = { p1:1200, p2:850,  p3:600,  p4:200,  mvp:125 };
-const S3_PRIZES = { p1:1700, p2:1000, p3:850,  p4:500,  mvp:250 };
-const INHOUSE_PRIZES = { p1:0, p2:0, p3:0, mvp:0 }; // no prize payouts for in-house leagues
+const S3_PRIZES = { p1:1700, p2:1000, p3:850,  p4:500,  mvp:400 };
+const INHOUSE_PRIZES = { p1:500, p2:250, p3:100, mvp:50 }; // per in-house league (×3 leagues)
 const SEASON_PRIZES  = S1_PRIZES; // kept for legacy references
 const PLAYOFF_PRIZES = S3_PRIZES; // S3 IS the playoff season
 const PARTICIPATION_PRIZES = [900,650,450,250,50,50,50,50,50,50,50,50,50,50,50,50]; // Top 4 earn most; everyone else $50 flat
@@ -91,21 +91,10 @@ const TEAM_SHARE_START    = 45;    // team player first-buy share price
 const TEAM_SHARE_FLOOR    = 10;    // same floor as singles
 const DOUBLES_SHARE_CEIL  = 200;   // doubles: shares top out at $200
 const TRIPLES_SHARE_CEIL  = 250;   // triples: shares top out at $250
-const DOUBLES_S1_REG = 325; const DOUBLES_S2_REG = 350; const DOUBLES_S3_REG = 375;
-const TRIPLES_S1_REG = 325; const TRIPLES_S2_REG = 350; const TRIPLES_S3_REG = 375;
-const DOUBLES_REG = DOUBLES_S3_REG; // legacy alias — defaults to S3
-const TRIPLES_REG = TRIPLES_S3_REG; // legacy alias — defaults to S3
-const TEAM_REG_PER_PERSON = 325; // legacy ref (S1 base)
-// Per-person prizes — S1 matches individual prizes; S2/S3 defined by operator
-const DOUBLES_S1_PRIZES = { p1:850,  p2:450,  p3:250,  p4:100 }; // = individual S1
-const DOUBLES_S2_PRIZES = { p1:900,  p2:700,  p3:400,  p4:200 }; // per person ×2
-const DOUBLES_S3_PRIZES = { p1:1300, p2:850,  p3:600,  p4:350 }; // per person ×2
-const TRIPLES_S1_PRIZES = { p1:850,  p2:450,  p3:250,  p4:100 }; // = individual S1
-const TRIPLES_S2_PRIZES = { p1:900,  p2:700,  p3:400,  p4:200 }; // per person ×3
-const TRIPLES_S3_PRIZES = { p1:1300, p2:850,  p3:600,  p4:350 }; // per person ×3
-// Keep these as S3 defaults for any legacy refs
-const DOUBLES_PRIZES = DOUBLES_S3_PRIZES;
-const TRIPLES_PRIZES = TRIPLES_S3_PRIZES;
+const TEAM_REG_PER_PERSON = 150;   // registration per person (doubles & triples)
+// Per-person prizes — doubles mirrors S1 singles; triples is juicier (harder to build a 3-man squad)
+const DOUBLES_PRIZES = { p1:750,  p2:400,  p3:200,  p4:125 }; // per person; ×2 for team total
+const TRIPLES_PRIZES = { p1:1000, p2:600,  p3:300,  p4:175 }; // per person; ×3 for team total
 const TEAM_PARTICIPATION_PER_PERSON = 75; // 5th+ place — $75 per person
 const SALVAGE_CASH           = 5;
 const SALVAGE_DISCOUNT       = 10;
@@ -115,7 +104,7 @@ const GAME_VOL   = { 'straight8':1.13, 'bca8':1.33, '9ball':1.63, '10ball':1.93 
 const GAME_LABELS = { 'straight8':'Straight 8-Ball', 'bca8':'8-Ball (BCA Rules)', '9ball':'9-Ball', '10ball':'10-Ball' };
 const OFF_SCHEDULE_FACTOR = 0.5; // off-schedule matches move price half as much
 // ── Registration Fees per Season ──
-const S1_REG = 175; const S2_REG = 235; const S3_REG = 255;
+const S1_REG = 150; const S2_REG = 175; const S3_REG = 200;
 const S3_REG_FREE = 0;   // 1st place from S1 or S2 enters S3 FREE
 const S3_REG_HALF = 100; // 2nd place from S1 or S2 pays half ($100)
 const WEEK_FEE   = 25;
@@ -369,24 +358,13 @@ function App() {
     const baseProfit = totalBase + inHouseRevenue - barCut - seasonPayouts - playoffPayouts - participationPayouts - inHousePrizesTotal;
     const salvageCashOut = supporters.reduce((s,x)=>
       x.salvaged && x.salvageType==='cash' ? s + (parseInt(x.shares)||0)*SALVAGE_CASH : s, 0);
-    const dRegRate = (t)=>t.season===1?DOUBLES_S1_REG:t.season===2?DOUBLES_S2_REG:DOUBLES_S3_REG;
-    const tRegRate = (t)=>t.season===1?TRIPLES_S1_REG:t.season===2?TRIPLES_S2_REG:TRIPLES_S3_REG;
-    const doublesReg = doublesTeams.reduce((s,t)=>s+(t.paid?2*dRegRate(t):0),0);
-    const triplesReg = triplesTeams.reduce((s,t)=>s+(t.paid?3*tRegRate(t):0),0);
+    const doublesReg = doublesTeams.reduce((s,t)=>s+(t.paid?2*TEAM_REG_PER_PERSON:0),0);
+    const triplesReg = triplesTeams.reduce((s,t)=>s+(t.paid?3*TEAM_REG_PER_PERSON:0),0);
     const teamRevenue = doublesReg + triplesReg;
-    // Season-split team prize pools (use highest season present in each team's seasonKey, default S3)
-    const dPrizes = (t) => t.season===1?DOUBLES_S1_PRIZES:t.season===2?DOUBLES_S2_PRIZES:DOUBLES_S3_PRIZES;
-    const tPrizes = (t) => t.season===1?TRIPLES_S1_PRIZES:t.season===2?TRIPLES_S2_PRIZES:TRIPLES_S3_PRIZES;
-    const teamPrizeSum = (teams, ppFn, mult) => {
-      const sorted = [...teams].sort((a,b)=>(b.wins||0)-(a.wins||0));
-      return sorted.reduce((s,t,i)=>{
-        const p = ppFn(t);
-        const pp = i===0?p.p1:i===1?p.p2:i===2?p.p3:i===3?p.p4:TEAM_PARTICIPATION_PER_PERSON;
-        return s + pp * mult;
-      },0);
-    };
-    const doublesPrizePool = doublesTeams.length ? teamPrizeSum(doublesTeams, dPrizes, 2) : 0;
-    const triplesPrizePool = triplesTeams.length ? teamPrizeSum(triplesTeams, tPrizes, 3) : 0;
+    const dBase = doublesTeams.length>=4?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+DOUBLES_PRIZES.p4:doublesTeams.length===3?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3:doublesTeams.length===2?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2:doublesTeams.length===1?DOUBLES_PRIZES.p1:0;
+    const doublesPrizePool = dBase + Math.max(0,doublesTeams.length-4)*2*TEAM_PARTICIPATION_PER_PERSON;
+    const tBase = triplesTeams.length>=4?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3+TRIPLES_PRIZES.p4:triplesTeams.length===3?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3:triplesTeams.length===2?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2:triplesTeams.length===1?TRIPLES_PRIZES.p1:0;
+    const triplesPrizePool = tBase + Math.max(0,triplesTeams.length-4)*3*TEAM_PARTICIPATION_PER_PERSON;
     const teamPrizes = doublesPrizePool + triplesPrizePool;
     const netProfit  = baseProfit + opShareFee - barShareCut - playerShareCuts - salvageCashOut + teamRevenue - teamPrizes;
     const perPartner = netProfit / 4;
@@ -634,7 +612,7 @@ function PayoutsView({ supporters=[], s1standings=[], s2standings=[], s1players=
   const playerRows = allNames.map(name => {
     const s1p  = s1players.find(p=>p.name===name)||{};
     const s2p  = s2players.find(p=>p.name===name)||{};
-    const costIn = (s1p.paid?S1_REG:0)+(s2p.paid?S2_REG:0)+((parseInt(s1p.weeksPaid)||0)+(parseInt(s2p.weeksPaid)||0))*25;
+    const costIn = (s1p.paid?150:0)+(s2p.paid?150:0)+((parseInt(s1p.weeksPaid)||0)+(parseInt(s2p.weeksPaid)||0))*25;
     const s1rank = s1standings.findIndex(x=>x.name===name);
     const s2rank = s2standings.findIndex(x=>x.name===name);
     const s1prize = s1rank===0?S1_PRIZES.p1:s1rank===1?S1_PRIZES.p2:s1rank===2?S1_PRIZES.p3:s1rank===3?(S1_PRIZES.p4||0):s1rank>=0?50:0;
@@ -701,53 +679,26 @@ function PayoutsView({ supporters=[], s1standings=[], s2standings=[], s1players=
               ))}
             </div>
             <PRow place="🥇 1st"      s1="$850"    s2="$1,200"  s3="$1,700"  color={C.gold}/>
-            <PRow place="🥈 2nd"      s1="$450"    s2="$850"    s3="$1,000"  color="#aaa"/>
+            <PRow place="🥈 2nd"      s1="$450"    s2="$1,000"  s3="$1,000"  color="#aaa"/>
             <PRow place="🥉 3rd"      s1="$250"    s2="$600"    s3="$850"    color="#cd7f32"/>
             <PRow place="4th"         s1="$100"    s2="$200"    s3="$500"    color={C.blue}/>
-            <PRow place="🎖 MVP"      s1="$75"     s2="$125"    s3="$250"    color={C.purple}/>
+            <PRow place="🎖 MVP"      s1="$75"     s2="$125"    s3="$400"    color={C.purple}/>
             <PRow place="All others"  s1="$50 min" s2="$50 min" s3="$50 min" color={C.gray}/>
             <div style={{marginTop:12,background:"#001a0a",border:`1px solid ${C.green}`,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.gray}}>
               💡 Win all 3 seasons → max $5,250. S1/S2 1st place enters S3 <strong style={{color:C.green}}>FREE</strong>. 2nd place pays $100.
             </div>
           </Card>
-          <Card title="⚡ Team Leagues — Prizes by Season" borderColor={C.blue} icon="👥">
-            {[
-              {label:"2v2 Doubles",reg:"$325/pp · $650/team · 15 teams target",color:C.blue,rows:[
-                {place:"🥇 1st",s1:"$850 ($1,700)",  s2:"$900 ($1,800)",  s3:"$1,300 ($2,600)"},
-                {place:"🥈 2nd",s1:"$450 ($900)",    s2:"$700 ($1,400)",  s3:"$850 ($1,700)"},
-                {place:"🥉 3rd",s1:"$250 ($500)",    s2:"$400 ($800)",    s3:"$600 ($1,200)"},
-                {place:"4th",   s1:"$100 ($200)",    s2:"$200 ($400)",    s3:"$350 ($700)"},
-                {place:"5th+",  s1:"$75 ($150)",     s2:"$75 ($150)",     s3:"$75 ($150)"},
-              ]},
-              {label:"3v3 Triples",reg:"$325/pp · $975/team · 15 teams target",color:C.purple,rows:[
-                {place:"🥇 1st",s1:"$850 ($2,550)",  s2:"$900 ($2,700)",  s3:"$1,300 ($3,900)"},
-                {place:"🥈 2nd",s1:"$450 ($1,350)",  s2:"$700 ($2,100)",  s3:"$850 ($2,550)"},
-                {place:"🥉 3rd",s1:"$250 ($750)",    s2:"$400 ($1,200)",  s3:"$600 ($1,800)"},
-                {place:"4th",   s1:"$100 ($300)",    s2:"$200 ($600)",    s3:"$350 ($1,050)"},
-                {place:"5th+",  s1:"$75 ($225)",     s2:"$75 ($225)",     s3:"$75 ($225)"},
-              ]},
-            ].map(({label,reg,color,rows})=>(
-              <div key={label} style={{marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                  <div style={{fontSize:13,fontWeight:900,color}}>{label}</div>
-                  <div style={{fontSize:11,color:C.gray}}>{reg}</div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"70px 1fr 1fr 1fr",gap:6,padding:"6px 0",borderBottom:`1px solid ${C.cardBorder}`,marginBottom:4}}>
-                  {["Place","Season 1","Season 2","Season 3 🏆"].map(h=>(
-                    <div key={h} style={{fontSize:10,color:C.gray,fontWeight:700,textAlign:h==="Place"?"left":"center"}}>{h}</div>
-                  ))}
-                </div>
-                {rows.map(({place,s1,s2,s3},i)=>(
-                  <div key={place} style={{display:"grid",gridTemplateColumns:"70px 1fr 1fr 1fr",gap:6,padding:"8px 0",borderBottom:`1px solid ${C.cardBorder}`,alignItems:"center"}}>
-                    <div style={{fontSize:12,fontWeight:900,color:i===0?C.gold:i===1?"#aaa":i===2?"#cd7f32":color}}>{place}</div>
-                    <div style={{textAlign:"center",fontSize:12,color:C.gray}}>{s1}</div>
-                    <div style={{textAlign:"center",fontSize:12,color:C.gray}}>{s2}</div>
-                    <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:i<4?color:C.gray}}>{s3}</div>
-                  </div>
-                ))}
-              </div>
-            ))}
-            <div style={{fontSize:11,color:C.gray,marginTop:4}}>Format: per person (team total)</div>
+          <Card title="⚡ Team Leagues — Per Person & Total" borderColor={C.blue} icon="👥">
+            <div style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 1fr 1fr",gap:8,padding:"8px 0",borderBottom:`2px solid ${C.cardBorder}`,marginBottom:4}}>
+              {["Place","2v2 /person","2v2 total","3v3 /person","3v3 total"].map(h=>(
+                <div key={h} style={{fontSize:11,color:C.gray,fontWeight:700,textAlign:h==="Place"?"left":"center"}}>{h}</div>
+              ))}
+            </div>
+            <TRow place="🥇 1st" dPP="$750"  dTotal="($1,500)" tPP="$1,000" tTotal="($3,000)" color={C.gold}/>
+            <TRow place="🥈 2nd" dPP="$400"  dTotal="($800)"   tPP="$600"   tTotal="($1,800)" color="#aaa"/>
+            <TRow place="🥉 3rd" dPP="$200"  dTotal="($400)"   tPP="$300"   tTotal="($900)"   color="#cd7f32"/>
+            <TRow place="4th"    dPP="$125"  dTotal="($250)"   tPP="$175"   tTotal="($525)"   color={C.blue}/>
+            <TRow place="5th+"   dPP="$75"   dTotal="($150)"   tPP="$75"    tTotal="($225)"   color={C.gray}/>
           </Card>
           <Card title="🏟 In-House Leagues — Prize per League (×3 leagues)" borderColor={C.green} icon="🏆">
             <div style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr",gap:8,padding:"8px 0",borderBottom:`2px solid ${C.cardBorder}`,marginBottom:4}}>
@@ -775,11 +726,11 @@ function PayoutsView({ supporters=[], s1standings=[], s2standings=[], s1players=
           <Card title="💳 Registration Fees" borderColor={C.cardBorder}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
               {[
-                {label:"Season 1",    fee:"$175 reg", wkly:"+ $25/wk", note:"8 wks = $375 max",            color:C.gold},
-                {label:"Season 2",    fee:"$235 reg", wkly:"+ $25/wk", note:"S1 alumni first pick",         color:C.purple},
-                {label:"Season 3 🏆", fee:"$255 reg", wkly:"+ $25/wk", note:"1st FREE · 2nd = $128",       color:C.red},
-                {label:"2v2 Teams",   fee:"S1 $325 · S2 $350 · S3 $375",  wkly:"per person",note:"15 teams target · Shares $45 start · $200 ceil", color:C.blue},
-                {label:"3v3 Teams",   fee:"S1 $325 · S2 $350 · S3 $375",  wkly:"per person",note:"15 teams target · Shares $45 start · $250 ceil", color:C.purple},
+                {label:"Season 1",    fee:"$150 reg", wkly:"+ $25/wk", note:"8 wks = $350 max",            color:C.gold},
+                {label:"Season 2",    fee:"$175 reg", wkly:"+ $25/wk", note:"S1 alumni first pick",         color:C.purple},
+                {label:"Season 3 🏆", fee:"$200 reg", wkly:"+ $25/wk", note:"1st FREE · 2nd = $100",       color:C.red},
+                {label:"2v2 Teams",   fee:"$150/pp",  wkly:"$300/team",note:"Shares $45 start · $200 ceil", color:C.blue},
+                {label:"3v3 Teams",   fee:"$150/pp",  wkly:"$450/team",note:"Shares $45 start · $250 ceil", color:C.purple},
                 {label:"In-House",    fee:"$150 reg", wkly:"+ $25/wk", note:"Bundle 3: $400 + $65/wk",     color:C.green},
               ].map(({label,fee,wkly,note,color})=>(
                 <div key={label} style={{background:C.dimBg,border:`2px solid ${color}`,borderRadius:10,padding:14,textAlign:"center"}}>
@@ -1045,19 +996,17 @@ function TeamsView({ doublesTeams, setDoublesTeams, triplesTeams, setTriplesTeam
   // P&L for teams
   const dPaid = doublesTeams.filter(t=>t.paid).length;
   const tPaid = triplesTeams.filter(t=>t.paid).length;
-  const dRegPP = currentSeason==='S3'?DOUBLES_S3_REG:currentSeason==='S2'?DOUBLES_S2_REG:DOUBLES_S1_REG;
-  const tRegPP = currentSeason==='S3'?TRIPLES_S3_REG:currentSeason==='S2'?TRIPLES_S2_REG:TRIPLES_S1_REG;
-  const dRev = dPaid*2*dRegPP;
-  const tRev = tPaid*3*tRegPP;
+  const dRev = dPaid*2*TEAM_REG_PER_PERSON;
+  const tRev = tPaid*3*TEAM_REG_PER_PERSON;
   const dBase2 = doublesTeams.length>=4?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+DOUBLES_PRIZES.p4:doublesTeams.length===3?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3:doublesTeams.length===2?DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2:doublesTeams.length===1?DOUBLES_PRIZES.p1:0;
-  const dPrize = dBase2*2 + Math.max(0,doublesTeams.length-4)*2*TEAM_PARTICIPATION_PER_PERSON;
+  const dPrize = dBase2 + Math.max(0,doublesTeams.length-4)*2*TEAM_PARTICIPATION_PER_PERSON;
   const tBase2 = triplesTeams.length>=4?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3+TRIPLES_PRIZES.p4:triplesTeams.length===3?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3:triplesTeams.length===2?TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2:triplesTeams.length===1?TRIPLES_PRIZES.p1:0;
-  const tPrize = tBase2*3 + Math.max(0,triplesTeams.length-4)*3*TEAM_PARTICIPATION_PER_PERSON;
+  const tPrize = tBase2 + Math.max(0,triplesTeams.length-4)*3*TEAM_PARTICIPATION_PER_PERSON;
   const teamNet = dRev + tRev - dPrize - tPrize;
 
   return (
     <div>
-      <PageTitle icon="👥" title="Team Play" desc="Doubles (2v2) & Triples (3v3) · $325/pp · $650/$975 per team · Target 15 teams each · 1st–4th paid · 5th+ $75/pp · Shares start $45" />
+      <PageTitle icon="👥" title="Team Play" desc="Doubles (2v2) & Triples (3v3) · $150/person reg · 1st–4th paid · 5th+ gets $75/person · Shares start $45" />
       <Tip color={C.blue}>Team share prices start at <strong>$45</strong> and move based on wins/losses. Floor is $10. Doubles max $200 · Triples max $250. More volatile than singles — bigger upside for supporters.</Tip>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:20}}>
@@ -1077,12 +1026,12 @@ function TeamsView({ doublesTeams, setDoublesTeams, triplesTeams, setTriplesTeam
           <div>
             <div style={{fontSize:13,fontWeight:900,color:C.green,marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${C.green}33`}}>2v2 LEAGUE — DOUBLES</div>
             {[
-              [`Reg (${dPaid} teams × $650/team)`, dRev, true],
-              [`1st — $${DOUBLES_PRIZES.p1}/pp × 2`, DOUBLES_PRIZES.p1*2, false],
-              [`2nd — $${DOUBLES_PRIZES.p2}/pp × 2`, DOUBLES_PRIZES.p2*2, false],
-              [`3rd — $${DOUBLES_PRIZES.p3}/pp × 2`, DOUBLES_PRIZES.p3*2, false],
-              [`4th — $${DOUBLES_PRIZES.p4}/pp × 2`, DOUBLES_PRIZES.p4*2, false],
-              [`5th+ — $75/pp (${Math.max(0,doublesTeams.length-4)} teams)`, Math.max(0,doublesTeams.length-4)*2*TEAM_PARTICIPATION_PER_PERSON, false],
+              [`Reg (${dPaid} teams × 2 × $150)`, dRev, true],
+              [`1st — $500/person`, DOUBLES_PRIZES.p1, false],
+              [`2nd — $300/person`, DOUBLES_PRIZES.p2, false],
+              [`3rd — $150/person`, DOUBLES_PRIZES.p3, false],
+              [`4th — $100/person`, DOUBLES_PRIZES.p4, false],
+              [`5th+ — $75/person (${Math.max(0,doublesTeams.length-4)} teams)`, Math.max(0,doublesTeams.length-4)*2*TEAM_PARTICIPATION_PER_PERSON, false],
             ].map(([l,v,isRev])=>(
               <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.cardBorder}`,fontSize:12}}>
                 <span style={{color:C.gray}}>{l}</span>
@@ -1097,12 +1046,12 @@ function TeamsView({ doublesTeams, setDoublesTeams, triplesTeams, setTriplesTeam
           <div>
             <div style={{fontSize:13,fontWeight:900,color:C.purple,marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${C.purple}33`}}>3v3 LEAGUE — TRIPLES</div>
             {[
-              [`Reg (${tPaid} teams × $975/team)`, tRev, true],
-              [`1st — $${TRIPLES_PRIZES.p1}/pp × 3`, TRIPLES_PRIZES.p1*3, false],
-              [`2nd — $${TRIPLES_PRIZES.p2}/pp × 3`, TRIPLES_PRIZES.p2*3, false],
-              [`3rd — $${TRIPLES_PRIZES.p3}/pp × 3`, TRIPLES_PRIZES.p3*3, false],
-              [`4th — $${TRIPLES_PRIZES.p4}/pp × 3`, TRIPLES_PRIZES.p4*3, false],
-              [`5th+ — $75/pp (${Math.max(0,triplesTeams.length-4)} teams)`, Math.max(0,triplesTeams.length-4)*3*TEAM_PARTICIPATION_PER_PERSON, false],
+              [`Reg (${tPaid} teams × 3 × $150)`, tRev, true],
+              [`1st — $500/person`, TRIPLES_PRIZES.p1, false],
+              [`2nd — $300/person`, TRIPLES_PRIZES.p2, false],
+              [`3rd — $150/person`, TRIPLES_PRIZES.p3, false],
+              [`4th — $100/person`, TRIPLES_PRIZES.p4, false],
+              [`5th+ — $75/person (${Math.max(0,triplesTeams.length-4)} teams)`, Math.max(0,triplesTeams.length-4)*3*TEAM_PARTICIPATION_PER_PERSON, false],
             ].map(([l,v,isRev])=>(
               <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.cardBorder}`,fontSize:12}}>
                 <span style={{color:C.gray}}>{l}</span>
@@ -1115,38 +1064,17 @@ function TeamsView({ doublesTeams, setDoublesTeams, triplesTeams, setTriplesTeam
             </div>
           </div>
         </div>
-        {(()=>{
-          // PATH 3 PROJECTION: 15 doubles + 15 triples · 11 teams get $75/pp participation (5th–15th)
-          const T = 15, PART = 11;
-          const d3net = T*2*DOUBLES_S3_REG - (DOUBLES_S3_PRIZES.p1+DOUBLES_S3_PRIZES.p2+DOUBLES_S3_PRIZES.p3+DOUBLES_S3_PRIZES.p4)*2 - PART*2*TEAM_PARTICIPATION_PER_PERSON;
-          const t3net = T*3*TRIPLES_S3_REG - (TRIPLES_S3_PRIZES.p1+TRIPLES_S3_PRIZES.p2+TRIPLES_S3_PRIZES.p3+TRIPLES_S3_PRIZES.p4)*3 - PART*3*TEAM_PARTICIPATION_PER_PERSON;
-          const allSeasons3 = (
-            T*2*DOUBLES_S1_REG+T*2*DOUBLES_S2_REG+T*2*DOUBLES_S3_REG
-            +T*3*TRIPLES_S1_REG+T*3*TRIPLES_S2_REG+T*3*TRIPLES_S3_REG
-            -(DOUBLES_S1_PRIZES.p1+DOUBLES_S1_PRIZES.p2+DOUBLES_S1_PRIZES.p3+DOUBLES_S1_PRIZES.p4)*2
-            -(DOUBLES_S2_PRIZES.p1+DOUBLES_S2_PRIZES.p2+DOUBLES_S2_PRIZES.p3+DOUBLES_S2_PRIZES.p4)*2
-            -(DOUBLES_S3_PRIZES.p1+DOUBLES_S3_PRIZES.p2+DOUBLES_S3_PRIZES.p3+DOUBLES_S3_PRIZES.p4)*2
-            -(TRIPLES_S1_PRIZES.p1+TRIPLES_S1_PRIZES.p2+TRIPLES_S1_PRIZES.p3+TRIPLES_S1_PRIZES.p4)*3
-            -(TRIPLES_S2_PRIZES.p1+TRIPLES_S2_PRIZES.p2+TRIPLES_S2_PRIZES.p3+TRIPLES_S2_PRIZES.p4)*3
-            -(TRIPLES_S3_PRIZES.p1+TRIPLES_S3_PRIZES.p2+TRIPLES_S3_PRIZES.p3+TRIPLES_S3_PRIZES.p4)*3
-            -3*PART*2*TEAM_PARTICIPATION_PER_PERSON-3*PART*3*TEAM_PARTICIPATION_PER_PERSON
-          );
-          const inHouseNetPerSeason = 6500; // 10 players × 3 leagues bundle: $9,200 rev − $2,700 prizes
-          const inHouseNet3 = inHouseNetPerSeason * 3;
-          const totalNet3 = allSeasons3 + inHouseNet3;
-          const perPartnerSeason = totalNet3 / 3 / 4;
-          return (
-            <div style={{marginTop:14,background:"#001a0a",border:`2px solid ${C.green}`,borderRadius:10,padding:"14px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:10,textAlign:"center"}}>
-              <div><div style={{fontSize:10,color:C.gray,marginBottom:4}}>LIVE NET</div><div style={{fontSize:20,fontWeight:900,color:teamNet>=0?C.green:C.red}}>{$$(teamNet)}</div></div>
-              <div><div style={{fontSize:10,color:C.gray,marginBottom:4}}>S3 PROJ (15D+15T)</div><div style={{fontSize:20,fontWeight:900,color:d3net+t3net>=0?C.green:C.red}}>{$$(d3net+t3net)}</div></div>
-              <div><div style={{fontSize:10,color:C.gray,marginBottom:4}}>TEAMS 3-SEASON</div><div style={{fontSize:20,fontWeight:900,color:C.blue}}>{$$(allSeasons3)}</div></div>
-              <div><div style={{fontSize:10,color:C.gray,marginBottom:4}}>+ IN-HOUSE (3 seasons)</div><div style={{fontSize:20,fontWeight:900,color:C.purple}}>{$$(inHouseNet3)}</div></div>
-              <div style={{background:"#ffffff11",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:C.gold,marginBottom:4,fontWeight:900}}>PER PARTNER/SEASON</div><div style={{fontSize:22,fontWeight:900,color:C.gold}}>{$$(perPartnerSeason)}</div></div>
-            </div>
-          );
-        })()}
+        <div style={{marginTop:14,background:"#001a0a",border:`2px solid ${C.green}`,borderRadius:10,padding:"14px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,textAlign:"center"}}>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>TEAM NET (LIVE)</div><div style={{fontSize:22,fontWeight:900,color:teamNet>=0?C.green:C.red}}>{$$(teamNet)}</div></div>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>PROJ (8D + 6T)</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.gold}}>{$$(8*2*150+6*3*150-(DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3))}</div>
+          </div>
+          <div><div style={{fontSize:11,color:C.gray,marginBottom:4}}>PROJ/PARTNER</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.gold}}>{$$((8*2*150+6*3*150-(DOUBLES_PRIZES.p1+DOUBLES_PRIZES.p2+DOUBLES_PRIZES.p3+TRIPLES_PRIZES.p1+TRIPLES_PRIZES.p2+TRIPLES_PRIZES.p3))/4)}</div>
+          </div>
+        </div>
         <div style={{fontSize:11,color:C.gray,marginTop:8,textAlign:"center"}}>
-          Path 3 Target: 15 doubles + 15 triples teams · 3 in-house leagues/season · $3,761/partner/season
+          Projection assumes 8 doubles teams + 6 triples teams · Share vol not included above · Shares traded separately at $45 start, $200/$250 ceiling
         </div>
       </Card>
     </div>
@@ -2114,8 +2042,8 @@ function PnLView({ s1players, s2players, s1standings, s2standings, supporters, p
   const playerRows = allPlayerNames.map(name => {
     const s1p = s1players.find(p=>p.name===name)||{};
     const s2p = s2players.find(p=>p.name===name)||{};
-    const s1reg   = s1p.paid ? S1_REG : 0;
-    const s2reg   = s2p.paid ? S2_REG : 0;
+    const s1reg   = s1p.paid ? 150 : 0;
+    const s2reg   = s2p.paid ? 150 : 0;
     const s1weeks = (parseInt(s1p.weeksPaid)||0)*25;
     const s2weeks = (parseInt(s2p.weeksPaid)||0)*25;
     const totalIn = s1reg + s2reg + s1weeks + s2weeks;
@@ -2432,3 +2360,64 @@ function RulesView() {
         "Break requirements: At least 4 balls must hit cushions OR a ball must be pocketed. Failure = opponent's choice: re-rack or accept table as-is.",
         "Ball-in-hand: After any foul, opponent places cue ball ANYWHERE on the table (not just behind the line).",
         "Push-out rule: On the first shot after the break (before groups are decided), the shooter may push out. The opponent then decides to shoot or pass.",
+        "Open table: Before groups are decided, a legally pocketed 8-ball wins if all your group is also cleared. Otherwise spot the 8-ball.",
+        "Call-pocket: Only the 8-ball pocket must be called. All other balls are free — no need to call every shot.",
+        "Combination shots: Legal as long as you hit your ball first.",
+        "Loss of game: Pocket the 8-ball before clearing your group · Pocket 8-ball on break (re-rack in BCA) · Scratch on the 8-ball · 8-ball off the table.",
+        "Win: Legally pocket the 8-ball in the called pocket after clearing your entire group.",
+      ]
+    },
+    '9ball': {
+      title: "9-Ball",
+      icon: "9️⃣",
+      color: C.gold,
+      vol: "×1.2",
+      obj: "Hit balls in numerical order. Pocket the 9-ball (any time legally) to win.",
+      rules: [
+        "Object: Strike the lowest-numbered ball on the table first. You don't have to pocket it — just hit it first.",
+        "9-Ball anytime: If the 9-ball is legally pocketed (lowest ball hit first) on any shot — including the break — you WIN.",
+        "Break: Ball-in-hand behind the head string. Must strike the 1-ball first. Must pocket a ball OR drive 4 balls to cushions, or opponent may request re-rack.",
+        "Push-out (after break): Shooter can push out once. Opponent decides to shoot or give it back. No foul on a push-out.",
+        "Ball-in-hand: Any foul gives opponent ball-in-hand anywhere on the table.",
+        "Combination shots: Legal — as long as you contact the lowest-numbered ball first.",
+        "Jump & masse shots: Legal unless venue prohibits for table protection.",
+        "Win: Pocket the 9-ball on any legal shot.",
+      ]
+    },
+    '10ball': {
+      title: "10-Ball",
+      icon: "🔟",
+      color: C.red,
+      vol: "×1.3 (most volatile)",
+      obj: "Hit and pocket balls 1–10 in order. Must call every shot. Pocket the 10-ball to win.",
+      rules: [
+        "Object: Balls must be pocketed in numerical order, 1 through 10. The 10-ball wins the game.",
+        "Call every shot: Unlike 9-ball, you MUST call the ball AND the pocket for every shot. Accidental pockets are spotted (not scored).",
+        "Break: Must hit the 1-ball first. If the 10-ball is pocketed on the break it is spotted (does NOT win in most rulesets). Must pocket a ball or drive 4 to cushions.",
+        "No push-out: Push-out is NOT used in standard 10-ball. The break shooter must play a legal shot.",
+        "Ball-in-hand: Any foul gives opponent ball-in-hand anywhere on the table.",
+        "Spotted balls: Illegally pocketed balls (wrong order or un-called) are spotted on the foot spot.",
+        "Fouls: Failure to hit the lowest ball first · Scratch · Ball off table · Touching any ball illegally.",
+        "Win: Legally pocket the 10-ball in the called pocket, with balls played in correct order.",
+      ]
+    }
+  };
+  const g = games[activeGame];
+  return (
+    <div>
+      <PageTitle icon="📖" title="Official Game Rules" desc="Straight 8 · BCA 8-Ball · 9-Ball · 10-Ball — select a game to see the full ruleset." />
+      <Tip>Game type is set per match in the Matches tab. More complex games (9-ball, 10-ball) have higher stock volatility — bigger swings for winners AND losers.</Tip>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:20 }}>
+        {Object.entries(games).map(([k,v])=>(
+          <button key={k} onClick={()=>setActiveGame(k)} style={{ background:activeGame===k?v.color+"33":C.card, border:`2px solid ${activeGame===k?v.color:C.cardBorder}`, color:activeGame===k?v.color:C.gray, borderRadius:10, padding:"14px 10px", cursor:"pointer", fontFamily:"inherit", textAlign:"center" }}>
+            <div style={{ fontSize:28, marginBottom:4 }}>{v.icon}</div>
+            <div style={{ fontSize:12, fontWeight:700 }}>{v.title}</div>
+            <div style={{ fontSize:10, marginTop:2 }}>Vol {v.vol}</div>
+          </button>
+        ))}
+      </div>
+      <Card title={`${g.icon} ${g.title} — Full Rules`} borderColor={g.color} icon={g.icon}>
+        <div style={{ background:g.color+"11", border:`1px solid ${g.color}`, borderRadius:8, padding:"12px 16px", marginBottom:16 }}>
+          <div style={{ fontSize:11, color:g.color, fontWeight:700, marginBottom:4 }}>OBJECTIVE</div>
+          <div style={{ fontSize:14, color:C.white, fontWeight:700 }}>{g.obj}</div>
+          <div style={
