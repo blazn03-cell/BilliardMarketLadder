@@ -82,6 +82,8 @@ const PLAYER_SHARE_CUT = 0.20;
 const SHARE_CAP_PER_PLAYER   = 50;   // max shares sold per player total
 const PLAYER_SELF_BUY_MAX    = 6;    // player can buy max 6 of their own shares
 const SUPPORTER_BUY_MAX      = 5;    // supporters: max 5 per price change
+const SHARES_PER_PURCHASE_MAX = SUPPORTER_BUY_MAX; // alias used in table
+const PLAYER_SELF_BUY        = 25;   // first-dibs discount price for self-buy
 const PLAYER_SELF_BUY_PRICE  = 25;   // first-dibs discount price for self-buy
 const SHARE_MIN_PRICE        = 10;   // absolute price floor (can drop to $10 with losses)
 const SHARE_MAX_PRICE        = 150;  // ceiling: max $150 even for #1
@@ -131,18 +133,57 @@ const INHOUSE_VOL_SCALE        = [1, 1.2, 1.5, 2];  // exhibition volatility mul
 const EXHB_WIN_BUMP            = 5;   // +$5/share per exhibition win
 const EXHB_LOSS_BUMP           = 3;   // –$3/share per exhibition loss
 const EXHB_MAX                 = 20;  // cap ±$20 fluctuation from exhibitions
-const getSharePrice = (playerName, standings, players) => {
-  const rank = standings.findIndex(s => s.name === playerName);
-  let base = 30;
-  if (rank === 0) base = 200;
-  else if (rank === 1) base = 150;
-  else if (rank < 4)  base = 100;
-  else if (rank < 8)  base = 60;
-  else if (rank >= 0) base = 30;
-  // Exhibition bump: wins +$5, losses –$3, capped ±$20
-  const p = players && players.find(x=>x.name===playerName);
-  const bump = p ? Math.max(-EXHB_MAX, Math.min(EXHB_MAX, (p.exhibWins||0)*EXHB_WIN_BUMP - (p.exhibLosses||0)*EXHB_LOSS_BUMP)) : 0;
-  return Math.max(15, base + bump);
+// ── Stripe Payment Links (operator pastes their Stripe URLs here or via Settings) ──
+// Operator creates products in Stripe dashboard → copies payment link here
+// Format: https://buy.stripe.com/xxxxx
+let STRIPE_S1_REG_LINK   = localStorage.getItem('bml_stripe_s1_reg')   || '';
+let STRIPE_WEEKLY_LINK   = localStorage.getItem('bml_stripe_weekly')    || '';
+let STRIPE_S2_REG_LINK   = localStorage.getItem('bml_stripe_s2_reg')   || '';
+let STRIPE_S3_REG_LINK   = localStorage.getItem('bml_stripe_s3_reg')   || '';
+let STRIPE_SUPPORTER_LINK = localStorage.getItem('bml_stripe_supporter') || '';
+const saveStripeLinks = (s1, wk, s2, s3, sup) => {
+  STRIPE_S1_REG_LINK    = s1;  localStorage.setItem('bml_stripe_s1_reg', s1);
+  STRIPE_WEEKLY_LINK    = wk;  localStorage.setItem('bml_stripe_weekly', wk);
+  STRIPE_S2_REG_LINK    = s2;  localStorage.setItem('bml_stripe_s2_reg', s2);
+  STRIPE_S3_REG_LINK    = s3;  localStorage.setItem('bml_stripe_s3_reg', s3);
+  STRIPE_SUPPORTER_LINK = sup; localStorage.setItem('bml_stripe_supporter', sup);
+};
+const getSharePrice = (playerName, standings, players, seasonNum) => {
+  const rank = standings ? standings.findIndex(s => s.name === playerName) : -1;
+  let base;
+  if (rank < 0)        base = SHARE_FIRST_BUY_PRICE; // unranked = $35
+  else if (rank === 0) base = SHARE_MAX_PRICE;        // 1st = $150
+  else if (rank === 1) base = 120;                    // 2nd = $120
+  else if (rank < 4)   base = 90;                     // 3rd–4th = $90
+  else if (rank < 8)   base = 60;                     // 5th–8th = $60
+  else                 base = SHARE_FIRST_BUY_PRICE;  // 9th+    = $35
+  const p = players && players.find(x => x.name === playerName);
+  const bump = p ? Math.max(-EXHB_MAX, Math.min(EXHB_MAX,
+    (p.exhibWins||0)*EXHB_WIN_BUMP - (p.exhibLosses||0)*EXHB_LOSS_BUMP)) : 0;
+  return Math.max(SHARE_MIN_PRICE, Math.min(SHARE_MAX_PRICE, base + bump));
+};
+
+// ── Round-robin schedule generator (Berger algorithm) ──────────────────────
+const generateRoundRobin = (names) => {
+  const players = names.filter(Boolean);
+  if (players.length < 2) return [];
+  const arr = [...players];
+  if (arr.length % 2 !== 0) arr.push(null); // BYE slot
+  const sz = arr.length;
+  const rounds = [];
+  const fixed = arr[0];
+  const rot   = [...arr.slice(1)];
+  for (let r = 0; r < Math.min(sz - 1, WEEK_COUNT); r++) {
+    const pairs = [];
+    if (fixed && rot[0]) pairs.push([fixed, rot[0]]);
+    for (let i = 1; i < sz / 2; i++) {
+      const a = rot[i], b = rot[sz - 1 - i];
+      if (a && b) pairs.push([a, b]);
+    }
+    rounds.push(pairs);
+    rot.unshift(rot.pop()); // rotate
+  }
+  return rounds; // up to WEEK_COUNT rounds, each with sz/2 pairs
 };
 const getPlayoffPayout = (playerName, playoffs) => {
   if (!playerName) return 0;
@@ -166,6 +207,7 @@ const defaultPlayers = () =>
     inLeague1: false, inLeague2: false, inLeague3: false,
     inLeagueRegPaid: false, inLeagueWeeksPaid: 0,
     barId: null, s1Alumni: false, s2Alumni: false, s3RegStatus: "full",
+    phone: "", email: "", stripeRef: "", scheduleGenerated: false,
   }));
 const defaultMatches = (weekOffset = 0) => {
   const out = []; let id = 1 + weekOffset * (PLAYER_COUNT/2);
@@ -1213,7 +1255,7 @@ const btnSm = { background:"#2a2a45", border:"none", color:C.white, width:26, he
 const selStyle = { background:C.dimBg, border:`1px solid ${C.cardBorder}`, color:C.white, borderRadius:6, padding:"8px 10px", fontFamily:"inherit", fontSize:14, width:"100%", outline:"none" };
 const textInp = { background:"transparent", border:"none", borderBottom:`1px solid ${C.cardBorder}`, color:C.white, fontSize:14, padding:"4px 6px", fontFamily:"inherit", outline:"none", width:"100%" };
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function HomeView({ money, standings, s1standings, s2standings, season, setSeason, setTab, players }) {
+function HomeView({ money, standings, s1standings, s2standings, season, setSeason, setTab, players, matches, bars, supporters }) {
   return (
     <div>
       <div style={{ textAlign:"center", padding:"16px 0 24px" }}>
@@ -1270,6 +1312,51 @@ function HomeView({ money, standings, s1standings, s2standings, season, setSeaso
         <BigCard icon="📈" title="Your net profit" value={$$(money.netProfit)} color={C.red} onClick={() => setTab("money")} sub="tap for full breakdown" />
         <BigCard icon="🤝" title="Per partner ÷4" value={$$(money.perPartner)} color={C.gold} onClick={() => setTab("money")} />
       </div>
+      {/* ── Season 1 Launch Checklist ── */}
+      {season === 1 && (() => {
+        const namedPlayers    = (players||[]).filter(p=>p.name&&p.name.trim()).length;
+        const regPaid         = (players||[]).filter(p=>p.paid).length;
+        const barsSet         = (bars||[]).filter(b=>b.name&&b.name.trim()).length;
+        const scheduleExists  = (matches||[]).some(m=>m.a||m.b);
+        const week1Done       = (matches||[]).filter(m=>m.week===1&&(m.aScore||m.bScore)).length >= 4;
+        const supportersExist = (supporters||[]).filter(s=>s.name&&s.playerName).length > 0;
+        const steps = [
+          { done: namedPlayers>=16,   label:"16 players named",        desc:`${namedPlayers}/16 registered`, tab:"players", icon:"👤" },
+          { done: regPaid>=16,        label:"All reg fees paid ($175)", desc:`${regPaid}/16 paid`,            tab:"players", icon:"💵" },
+          { done: barsSet>=3,         label:"3 bars configured",        desc:`${barsSet}/3 bars added`,       tab:"bars",    icon:"🏪" },
+          { done: scheduleExists,     label:"Match schedule generated", desc:scheduleExists?"Generated ✓":"Go to Players tab", tab:"players", icon:"📅" },
+          { done: supportersExist,    label:"First supporter buy-in",   desc:supportersExist?"Supporters added ✓":"Open shares market", tab:"shares", icon:"💰" },
+          { done: week1Done,          label:"Week 1 scores entered",    desc:week1Done?"Done ✓":"Enter at Matches tab", tab:"matches", icon:"🎱" },
+        ];
+        const done = steps.filter(s=>s.done).length;
+        const allDone = done === steps.length;
+        return (
+          <div style={{ background: allDone ? "#001a08" : C.card, border:`2px solid ${allDone?C.green:C.gold}`, borderRadius:14, padding:"18px 20px", marginBottom:20 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div style={{ fontSize:16, fontWeight:900, color:allDone?C.green:C.gold }}>
+                {allDone ? "🚀 Season 1 Live!" : "🚀 Season 1 Launch Checklist"}
+              </div>
+              <div style={{ fontSize:13, fontWeight:700, color:allDone?C.green:C.gold }}>{done}/{steps.length} complete</div>
+            </div>
+            <div style={{ background:C.cardBorder, borderRadius:4, height:6, marginBottom:14, overflow:"hidden" }}>
+              <div style={{ width:`${(done/steps.length)*100}%`, height:"100%", background:allDone?C.green:C.gold, borderRadius:4, transition:"width 0.4s" }} />
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {steps.map((s,i)=>(
+                <div key={i} onClick={()=>setTab(s.tab)} style={{ display:"flex", alignItems:"center", gap:10, background:s.done?"#001a0a":C.dimBg, border:`1px solid ${s.done?C.green:C.cardBorder}`, borderRadius:8, padding:"9px 12px", cursor:"pointer", transition:"all 0.2s" }}>
+                  <span style={{ fontSize:18, minWidth:28, textAlign:"center" }}>{s.done?"✅":s.icon}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:s.done?C.green:C.white, textDecoration:s.done?"line-through":"none" }}>{s.label}</div>
+                    <div style={{ fontSize:11, color:C.gray }}>{s.desc}</div>
+                  </div>
+                  {!s.done && <span style={{ color:C.gold, fontSize:16 }}>›</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {[
           { tab:"players",     icon:"👤", label:"Add Players",        desc:"Register all 16 players" },
@@ -1499,54 +1586,178 @@ function InHouseView({ players, setPlayers, leagueNames, setLeagueNames, standin
     </div>
   );
 }
-function PlayersView({ players, setPlayers, season, bars }) {
+function PlayersView({ players, setPlayers, season, bars, matches, setMatches }) {
   const upd = (i,k,v) => setPlayers(ps=>ps.map((p,idx)=>idx===i?{...p,[k]:v}:p));
   const regFee = season===1?S1_REG:season===2?S2_REG:S3_REG;
   const weekKey = season===1?"weeksPaid":season===2?"s2weeksPaid":"s3weeksPaid";
   const paidKey = season===1?"paid":season===2?"s2paid":"s3paid";
   const totReg  = players.filter(p=>p[paidKey]).length * regFee;
   const totWeek = players.reduce((s,p)=>s+(parseInt(p[weekKey])||0)*WEEK_FEE,0);
+  const named   = players.filter(p=>p.name.trim()).length;
+  const regPaid = players.filter(p=>p[paidKey]).length;
+  const withBar = players.filter(p=>p.name&&p.barId).length;
+  const [showContact, setShowContact] = React.useState(false);
+  const [showStripeSettings, setShowStripeSettings] = React.useState(false);
+  const [stripeLinks, setStripeLinks] = React.useState({
+    s1: STRIPE_S1_REG_LINK, wk: STRIPE_WEEKLY_LINK,
+    s2: STRIPE_S2_REG_LINK, s3: STRIPE_S3_REG_LINK, sup: STRIPE_SUPPORTER_LINK,
+  });
+  const regLink = season===1?STRIPE_S1_REG_LINK:season===2?STRIPE_S2_REG_LINK:STRIPE_S3_REG_LINK;
+
+  // ── Schedule generator ──────────────────────────────────────────
+  const scheduleExists = matches && matches.some(m => m.a || m.b);
+  const handleGenerateSchedule = () => {
+    if (named < 2) { alert("Enter at least 2 player names first."); return; }
+    if (scheduleExists && !confirm("This will overwrite the existing schedule. Continue?")) return;
+    const names = players.map(p=>p.name.trim()).filter(Boolean);
+    const rounds = generateRoundRobin(names);
+    if (!rounds.length) return;
+    const updated = matches.map(m => {
+      const weekRound = rounds[m.week - 1];
+      if (!weekRound) return m;
+      const weekMatches = matches.filter(x => x.week === m.week);
+      const slotIndex   = weekMatches.findIndex(x => x.id === m.id);
+      const pair        = weekRound[slotIndex];
+      if (!pair) return m;
+      return { ...m, a: pair[0] || "", b: pair[1] || "" };
+    });
+    setMatches(updated);
+    alert(`✅ Schedule generated! ${rounds.length} weeks × 8 matches. Go to the Matches tab to see it.`);
+  };
+
+  // ── Stripe link helper ──────────────────────────────────────────
+  const copyStripeLink = (playerName, link) => {
+    if (!link) { alert("No Stripe link configured. Click ⚙️ Stripe Settings to add one."); return; }
+    const full = link + (link.includes('?') ? '&' : '?') + `client_reference_id=${encodeURIComponent(playerName)}`;
+    navigator.clipboard.writeText(full).then(()=>alert(`✅ Copied payment link for ${playerName}`));
+  };
+
+  const completionPct = named===0 ? 0 : Math.round(((named/PLAYER_COUNT)*0.4 + (regPaid/PLAYER_COUNT)*0.4 + (withBar/Math.max(named,1))*0.2)*100);
+
   return (
     <div>
       <PageTitle icon="👤" title={`Players — Season ${season}`} desc={season===1 ? `Register players. Reg fee $${S1_REG}/player. Weekly $${WEEK_FEE}/wk. Assign bar.` : season===2 ? `S2: Reg $${S2_REG}/player. S1 alumni get first pick. Weekly $${WEEK_FEE}/wk.` : `S3 PLAYOFFS: Reg $${S3_REG} (S1/S2 winners free or half). Weekly $${WEEK_FEE}/wk.`} />
-      <Tip>{season===1 ? `Check Reg Paid ($${S1_REG}). Set weeks. Assign player to a bar. S1 alumni get priority for S2+S3.` : season===2 ? `S2 reg $${S2_REG}. S1 players get sign-up priority. S1 1st place = FREE S3. S1 2nd = $100 S3.` : `S3 playoffs reg $${S3_REG} (S1/S2 1st = FREE, 2nd = $100). Vol ×2.5 — maximum volatility.`}</Tip>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
-        <BigCard icon="💵" title="Registration" value={$$(totReg)} color={C.green} />
-        <BigCard icon="📅" title="Weekly dues" value={$$(totWeek)} color={C.blue} />
-      </div>
-      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
-        <div style={{ display:"grid", gridTemplateColumns:"30px 1fr 90px 110px 90px 80px", gap:8, padding:"10px 14px", background:C.dimBg }}>
-          {["#","Player Name",`Reg Paid\n($${regFee})`,"Weeks Paid","Bar","Game"].map(h=>(
-            <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center", whiteSpace:"pre-line", lineHeight:1.3 }}>{h}</div>
+
+      {/* ── Season 1 Progress Bar ── */}
+      <div style={{ background:C.card, border:`1px solid ${C.cardBorder}`, borderRadius:12, padding:"14px 18px", marginBottom:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:13, fontWeight:700, color:C.white }}>S{season} Registration Progress</span>
+          <span style={{ fontSize:13, fontWeight:900, color:completionPct===100?C.green:C.gold }}>{completionPct}% ready</span>
+        </div>
+        <div style={{ background:C.cardBorder, borderRadius:6, height:8, marginBottom:10, overflow:"hidden" }}>
+          <div style={{ width:`${completionPct}%`, height:"100%", background:completionPct===100?C.green:C.gold, borderRadius:6, transition:"width 0.4s" }} />
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8 }}>
+          {[
+            { label:"Named", val:`${named}/${PLAYER_COUNT}`, done:named===PLAYER_COUNT, icon:"👤" },
+            { label:"Reg Paid", val:`${regPaid}/${PLAYER_COUNT}`, done:regPaid===PLAYER_COUNT, icon:"💵" },
+            { label:"Bar Assigned", val:`${withBar}/${named||1}`, done:withBar>=named&&named>0, icon:"🏪" },
+            { label:"Schedule", val:scheduleExists?"Generated":"Not yet", done:scheduleExists, icon:"📅" },
+          ].map(({label,val,done,icon})=>(
+            <div key={label} style={{ background:done?"#001a0a":C.dimBg, border:`1px solid ${done?C.green:C.cardBorder}`, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+              <div style={{ fontSize:18, marginBottom:2 }}>{done?"✅":icon}</div>
+              <div style={{ fontSize:10, color:C.gray, marginBottom:2 }}>{label}</div>
+              <div style={{ fontSize:12, fontWeight:700, color:done?C.green:C.gold }}>{val}</div>
+            </div>
           ))}
         </div>
-        {players.map((p,i)=>(
-          <div key={p.id} style={{ display:"grid", gridTemplateColumns:"30px 1fr 90px 110px 90px 80px", gap:8, padding:"9px 14px", background:i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
-            <div style={{ fontSize:12, color:C.gray, textAlign:"center" }}>{i+1}</div>
-            <input value={p.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
-            <div style={{ display:"flex", justifyContent:"center" }}>
-              <CheckBox checked={p[paidKey]||false} onChange={v=>upd(i,paidKey,v)} label={p[paidKey]?"✓ Paid":"Unpaid"} color={C.green} />
+      </div>
+
+      {/* ── Action Buttons ── */}
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+        <button onClick={handleGenerateSchedule} style={{ background:named>=2?"#001a2a":"#111", border:`2px solid ${named>=2?C.blue:C.cardBorder}`, color:named>=2?C.blue:C.gray, borderRadius:8, padding:"10px 18px", cursor:named>=2?"pointer":"not-allowed", fontFamily:"inherit", fontSize:13, fontWeight:700 }}>
+          📅 {scheduleExists ? "Regenerate Schedule" : "Generate Schedule"} {named<2?"(need players)":``}
+        </button>
+        <button onClick={()=>setShowContact(v=>!v)} style={{ background:showContact?C.card+"bb":C.card, border:`1px solid ${C.cardBorder}`, color:C.gray, borderRadius:8, padding:"10px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+          {showContact?"Hide Contact Info":"📞 Show Contact Fields"}
+        </button>
+        <button onClick={()=>setShowStripeSettings(v=>!v)} style={{ background:showStripeSettings?"#0a001a":C.card, border:`1px solid ${showStripeSettings?C.purple:C.cardBorder}`, color:showStripeSettings?C.purple:C.gray, borderRadius:8, padding:"10px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+          ⚙️ Stripe Settings
+        </button>
+      </div>
+
+      {/* ── Stripe Settings Panel ── */}
+      {showStripeSettings && (
+        <div style={{ background:"#0a001a", border:`2px solid ${C.purple}`, borderRadius:12, padding:"16px 18px", marginBottom:16 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:C.purple, marginBottom:4 }}>💳 Stripe Payment Links</div>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:12 }}>Create products in your Stripe dashboard → copy Payment Link URLs here. A player-name reference is appended automatically when you click the link button per player.</div>
+          {[
+            {key:"s1", label:"S1 Registration ($175)", placeholder:"https://buy.stripe.com/..."},
+            {key:"wk", label:"Weekly Fee ($25)", placeholder:"https://buy.stripe.com/..."},
+            {key:"s2", label:"S2 Registration ($235)", placeholder:"https://buy.stripe.com/..."},
+            {key:"s3", label:"S3 Registration ($255)", placeholder:"https://buy.stripe.com/..."},
+            {key:"sup", label:"Supporter Share Purchase ($35+)", placeholder:"https://buy.stripe.com/..."},
+          ].map(({key,label,placeholder})=>(
+            <div key={key} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <span style={{ fontSize:11, color:C.gray, minWidth:220 }}>{label}</span>
+              <input value={stripeLinks[key]} onChange={e=>setStripeLinks(l=>({...l,[key]:e.target.value}))} placeholder={placeholder}
+                style={{ ...textInp, flex:1, fontSize:11 }} />
             </div>
-            <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:4 }}>
-              <button onClick={()=>upd(i,weekKey,Math.max(0,(parseInt(p[weekKey])||0)-1))} style={btnSm}>−</button>
-              <span style={{ minWidth:22, textAlign:"center", fontWeight:900, fontSize:16, color:C.gold }}>{p[weekKey]||0}</span>
-              <button onClick={()=>upd(i,weekKey,Math.min(8,(parseInt(p[weekKey])||0)+1))} style={btnSm}>+</button>
+          ))}
+          <button onClick={()=>{ saveStripeLinks(stripeLinks.s1,stripeLinks.wk,stripeLinks.s2,stripeLinks.s3,stripeLinks.sup); setShowStripeSettings(false); alert("✅ Stripe links saved!"); }}
+            style={{ background:C.purple, border:"none", color:"#fff", borderRadius:8, padding:"8px 20px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700, marginTop:4 }}>
+            Save Stripe Links
+          </button>
+        </div>
+      )}
+
+      {/* ── Revenue Cards ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+        <BigCard icon="💵" title="Registration" value={$$(totReg)} color={C.green} sub={`${regPaid}/${PLAYER_COUNT} paid`} />
+        <BigCard icon="📅" title="Weekly dues" value={$$(totWeek)} color={C.blue} sub={`$${WEEK_FEE}/wk × 8 weeks`} />
+        <BigCard icon="💰" title="S{season} Total" value={$$(totReg+totWeek)} color={C.gold} sub="collected so far" />
+      </div>
+
+      {/* ── Player Table ── */}
+      <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
+        <div style={{ display:"grid", gridTemplateColumns:`28px 1fr 90px 110px 90px 60px ${regLink?'36px':''}`, gap:6, padding:"10px 14px", background:C.dimBg }}>
+          {["#","Player Name",`Reg ($${regFee})`,"Weeks Paid","Bar","Game",regLink?"💳":""].filter(Boolean).map(h=>(
+            <div key={h} style={{ fontSize:10, color:C.gray, fontWeight:700, textAlign:"center", whiteSpace:"pre-line", lineHeight:1.3 }}>{h}</div>
+          ))}
+        </div>
+
+        {players.map((p,i)=>{
+          const isComplete = p.name && p[paidKey] && p.barId;
+          return (
+            <div key={p.id}>
+              <div style={{ display:"grid", gridTemplateColumns:`28px 1fr 90px 110px 90px 60px ${regLink?'36px':''}`, gap:6, padding:"9px 14px", background:isComplete?"#001408":i%2===0?C.card:C.dimBg, borderTop:`1px solid ${C.cardBorder}`, alignItems:"center" }}>
+                <div style={{ fontSize:11, textAlign:"center" }}>
+                  {isComplete ? <span style={{color:C.green,fontSize:14}}>✅</span> : <span style={{color:C.gray}}>{i+1}</span>}
+                </div>
+                <input value={p.name} onChange={e=>upd(i,"name",e.target.value)} placeholder={`Player ${i+1}`} style={textInp} />
+                <div style={{ display:"flex", justifyContent:"center" }}>
+                  <CheckBox checked={p[paidKey]||false} onChange={v=>upd(i,paidKey,v)} label={p[paidKey]?"✓ Paid":"Unpaid"} color={C.green} />
+                </div>
+                <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:4 }}>
+                  <button onClick={()=>upd(i,weekKey,Math.max(0,(parseInt(p[weekKey])||0)-1))} style={btnSm}>−</button>
+                  <span style={{ minWidth:22, textAlign:"center", fontWeight:900, fontSize:15, color:C.gold }}>{p[weekKey]||0}</span>
+                  <button onClick={()=>upd(i,weekKey,Math.min(8,(parseInt(p[weekKey])||0)+1))} style={btnSm}>+</button>
+                </div>
+                <select value={p.barId||""} onChange={e=>upd(i,"barId",e.target.value?parseInt(e.target.value):null)} style={{ ...selStyle, fontSize:11, padding:"4px 5px" }}>
+                  <option value="">No bar</option>
+                  {bars.map(b=><option key={b.id} value={b.id}>{b.name||`Bar ${b.id}`}</option>)}
+                </select>
+                <select value={p.preferredGame||"straight8"} onChange={e=>upd(i,"preferredGame",e.target.value)} style={{ ...selStyle, fontSize:10, padding:"4px 4px" }}>
+                  {Object.entries(GAME_LABELS).map(([k,v])=><option key={k} value={k}>{k==="straight8"?"S8":k==="bca8"?"BCA":k==="9ball"?"9B":"10B"}</option>)}
+                </select>
+                {regLink && (
+                  <button onClick={()=>copyStripeLink(p.name||`Player ${i+1}`, regLink)} title="Copy Stripe payment link for this player"
+                    style={{ background:"#1a0030", border:`1px solid ${C.purple}`, color:C.purple, borderRadius:6, padding:"4px 0", cursor:"pointer", fontSize:14, fontFamily:"inherit", width:"100%", height:32 }}>💳</button>
+                )}
+              </div>
+              {/* Contact fields (collapsible) */}
+              {showContact && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, padding:"6px 14px 8px 50px", background:i%2===0?"#0e1820":"#111824", borderTop:`1px dashed ${C.cardBorder}` }}>
+                  <input value={p.phone||""} onChange={e=>upd(i,"phone",e.target.value)} placeholder="📞 Phone" style={{ ...textInp, fontSize:11 }} />
+                  <input value={p.email||""} onChange={e=>upd(i,"email",e.target.value)} placeholder="✉️ Email" style={{ ...textInp, fontSize:11 }} />
+                </div>
+              )}
             </div>
-            <div>
-              <select value={p.barId||""} onChange={e=>upd(i,"barId",e.target.value?parseInt(e.target.value):null)} style={{ ...selStyle, fontSize:11, padding:"4px 6px" }}>
-                <option value="">No bar</option>
-                {bars.map(b=><option key={b.id} value={b.id}>{b.name||`Bar ${b.id}`}</option>)}
-              </select>
-            </div>
-            <div>
-              <select value={p.preferredGame||"straight8"} onChange={e=>upd(i,"preferredGame",e.target.value)} style={{ ...selStyle, fontSize:11, padding:"4px 6px" }}>
-                {Object.entries(GAME_LABELS).map(([k,v])=><option key={k} value={k}>{v.replace("8-Ball (BCA Rules)","BCA 8").replace("Straight 8-Ball","Str. 8").replace("-Ball","")}</option>)}
-              </select>
-            </div>
-          </div>
-        ))}
+          );
+        })}
+
         <div style={{ background:"#0a1a0a", border:`2px solid ${C.green}`, padding:"12px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:14, fontWeight:700 }}>S{season} total collected:</span>
+          <span style={{ fontSize:14, fontWeight:700 }}>S{season} total collected: <span style={{ fontSize:12, color:C.gray, fontWeight:400, marginLeft:6 }}>{regPaid}/{PLAYER_COUNT} registered</span></span>
           <span style={{ fontSize:22, fontWeight:900, color:C.green }}>{$$(totReg+totWeek)}</span>
         </div>
       </div>
@@ -1629,10 +1840,29 @@ function MatchesView({ matches, setMatches, players, season }) {
   );
 }
 // ─── STANDINGS ────────────────────────────────────────────────────────────────
-function StandingsView({ standings, s1standings, s2standings, s3standings, season }) {
+function StandingsView({ standings, s1standings, s2standings, s3standings, season, players }) {
+  const prizes = season===1 ? S1_PRIZES : season===2 ? S2_PRIZES : S3_PRIZES;
+  const prizeKeys = ["p1","p2","p3"];
   return (
     <div>
-      <PageTitle icon="🏆" title={`Standings — Season ${season}`} desc="Win = 2pts · Tie = 1pt · Loss = 0" />
+      <PageTitle icon="🏆" title={`Standings — Season ${season}`} desc="Win = 2pts · Tie = 1pt · Loss = 0. Share prices update live based on rank." />
+
+      {/* Live share price ticker */}
+      {standings.length > 0 && (
+        <div style={{ background:"#001a0a", border:`1px solid ${C.green}`, borderRadius:10, padding:"10px 14px", marginBottom:16, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <span style={{ fontSize:11, color:C.green, fontWeight:700, marginRight:4 }}>📈 LIVE PRICES</span>
+          {standings.slice(0,8).map((p,i)=>{
+            const sp = getSharePrice(p.name, standings, players, season);
+            const color = i===0?C.red:i===1?"#ff6b35":i<4?C.gold:i<8?C.blue:C.gray;
+            return (
+              <span key={p.name} style={{ fontSize:12, background:C.dimBg, border:`1px solid ${color}`, borderRadius:6, padding:"3px 8px", color }}>
+                {p.name}: <strong>${sp}</strong>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       {(s1standings.length > 0 || s2standings.length > 0 || s3standings.length > 0) && (
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
           {[{label:"S1", data:s1standings, color:C.gold},{label:"S2", data:s2standings, color:C.purple},{label:"S3 Playoffs", data:s3standings, color:C.red}].map(({label,data,color})=>(
@@ -1665,7 +1895,8 @@ function StandingsView({ standings, s1standings, s2standings, s3standings, seaso
                   <>
                     <div style={{ fontSize:18, fontWeight:900, color:[C.gold,"#ccc","#cd7f32"][i] }}>{standings[i].name}</div>
                     <div style={{ fontSize:13, color:C.gray }}>{standings[i].pts} pts · {standings[i].w}W</div>
-                    <div style={{ fontSize:15, color:C.green, fontWeight:700, marginTop:6 }}>S{season} prize: {$$([SEASON_PRIZES.p1,SEASON_PRIZES.p2,SEASON_PRIZES.p3][i])}</div>
+                    <div style={{ fontSize:15, color:C.green, fontWeight:700, marginTop:4 }}>S{season} prize: {$$(prizes[prizeKeys[i]])}</div>
+                    <div style={{ fontSize:13, color:C.red, fontWeight:700 }}>Share price: ${getSharePrice(standings[i].name, standings, players, season)}</div>
                   </>
                 ) : <div style={{ color:C.gray, fontSize:14, marginTop:8 }}>TBD</div>}
               </div>
@@ -1673,13 +1904,14 @@ function StandingsView({ standings, s1standings, s2standings, s3standings, seaso
           </div>
           <Card>
             <div style={{ display:"grid", gridTemplateColumns:"40px 1fr 50px 50px 50px 70px 80px 80px", borderBottom:`2px solid ${C.cardBorder}`, paddingBottom:8, marginBottom:4 }}>
-              {["#","Name","W","L","T","Pts","Prize","Share $"].map(h=>(
+              {["#","Name","W","L","T","Pts","S"+season+" Prize","Share $"].map(h=>(
                 <div key={h} style={{ fontSize:11, color:C.gray, fontWeight:700, textAlign:"center" }}>{h}</div>
               ))}
             </div>
             {standings.map((p,i)=>{
-              const sharePrice = getSharePrice(p.name, standings);
-              const pc = sharePrice===75?C.red:sharePrice===50?C.gold:sharePrice===35?C.blue:C.gray;
+              const sharePrice = getSharePrice(p.name, standings, players, season);
+              const pc = sharePrice>=150?C.red:sharePrice>=120?"#ff6b35":sharePrice>=90?C.gold:sharePrice>=60?C.blue:C.gray;
+              const prizeAmt = prizes[prizeKeys[i]] || 0;
               return (
                 <div key={p.name} style={{ display:"grid", gridTemplateColumns:"40px 1fr 50px 50px 50px 70px 80px 80px", padding:"10px 0", borderBottom:`1px solid ${C.cardBorder}`, alignItems:"center", background:i<3?`${[C.gold,"#aaa","#cd7f32"][i]}11`:"transparent" }}>
                   <div style={{ textAlign:"center", fontSize:15, fontWeight:900, color:i<3?[C.gold,"#ccc","#cd7f32"][i]:C.gray }}>#{i+1}</div>
@@ -1688,7 +1920,7 @@ function StandingsView({ standings, s1standings, s2standings, s3standings, seaso
                   <div style={{ textAlign:"center", color:C.red, fontWeight:700 }}>{p.l}</div>
                   <div style={{ textAlign:"center", color:C.gray }}>{p.t}</div>
                   <div style={{ textAlign:"center", fontSize:15, fontWeight:900, color:C.red }}>{p.pts}</div>
-                  <div style={{ textAlign:"center", fontSize:13, color:C.gold, fontWeight:700 }}>{i<3?$$([1000,500,250][i]):"—"}</div>
+                  <div style={{ textAlign:"center", fontSize:13, color:C.gold, fontWeight:700 }}>{prizeAmt?$$(prizeAmt):"—"}</div>
                   <div style={{ textAlign:"center", fontSize:14, fontWeight:900, color:pc }}>${sharePrice}</div>
                 </div>
               );
@@ -1766,6 +1998,113 @@ function ParticipationView({ standings, s1standings, s2standings, supporters, pl
   );
 }
 // ─── SHARES ──────────────────────────────────────────────────────────────────
+function QuickBuyPanel({ names, standings, players, supporters, setSupporters, season }) {
+  const [buyer, setBuyer] = React.useState("");
+  const [pickedPlayer, setPickedPlayer] = React.useState("");
+  const [qty, setQty] = React.useState(1);
+  const [isSelf, setIsSelf] = React.useState(false);
+  const [added, setAdded] = React.useState(false);
+
+  const playerName = pickedPlayer;
+  const rank = playerName ? standings.findIndex(s=>s.name===playerName) : -1;
+  const sharePrice = playerName ? (isSelf ? PLAYER_SELF_BUY : getSharePrice(playerName, standings, players, season)) : 0;
+  const total = sharePrice * qty;
+  const existing = supporters.reduce((s,x)=>x.playerName===playerName||x.player===playerName?s+(parseInt(x.shares)||0):s,0);
+  const remaining = Math.max(0, SHARE_CAP_PER_PLAYER - existing);
+  const maxBuy = Math.min(isSelf ? PLAYER_SELF_BUY_MAX : SUPPORTER_BUY_MAX, remaining);
+
+  const handleAdd = () => {
+    if (!buyer.trim())       { alert("Enter buyer name."); return; }
+    if (!playerName)         { alert("Pick a player."); return; }
+    if (qty < 1)             { alert("Pick at least 1 share."); return; }
+    if (qty > maxBuy)        { alert(`Max ${maxBuy} shares available for this player.`); return; }
+    const newEntry = {
+      id: Date.now(), name: buyer.trim(), playerName, player: playerName,
+      shares: qty, paidAmt: total, self: isSelf,
+      cashedS1: false, locked: false, salvaged: false, salvageType: null,
+      purchasePrice: sharePrice, season,
+    };
+    setSupporters(ss => {
+      // Find first empty slot or append
+      const emptyIdx = ss.findIndex(s => !s.name && !s.shares);
+      if (emptyIdx >= 0) {
+        return ss.map((s,i) => i===emptyIdx ? newEntry : s);
+      }
+      return [...ss, newEntry];
+    });
+    if (STRIPE_SUPPORTER_LINK) {
+      const url = STRIPE_SUPPORTER_LINK + (STRIPE_SUPPORTER_LINK.includes('?')?'&':'?') +
+        `client_reference_id=${encodeURIComponent(buyer.trim())}&amount=${total*100}`;
+      if (confirm(`Added! Open Stripe payment link for ${buyer.trim()} to pay $${total}?`)) {
+        window.open(url, '_blank');
+      }
+    }
+    setBuyer(""); setPickedPlayer(""); setQty(1); setIsSelf(false);
+    setAdded(true); setTimeout(()=>setAdded(false), 2500);
+  };
+
+  const rankLabel = rank < 0 ? "Unranked" : rank===0 ? "🥇 #1" : rank===1 ? "🥈 #2" : rank<4 ? `🥉 #${rank+1}` : `#${rank+1}`;
+
+  return (
+    <div style={{ background:"#001a30", border:`2px solid ${C.blue}`, borderRadius:14, padding:"18px 20px", marginBottom:20 }}>
+      <div style={{ fontSize:15, fontWeight:900, color:C.blue, marginBottom:14 }}>⚡ Quick Share Purchase</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 120px", gap:12, alignItems:"end" }}>
+        {/* Buyer name */}
+        <div>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:5, fontWeight:700 }}>BUYER NAME</div>
+          <input value={buyer} onChange={e=>setBuyer(e.target.value)} placeholder="Supporter's name…"
+            style={{ ...textInp, background:"#0a1a2a", border:`1px solid ${C.blue}`, borderRadius:8, padding:"10px 12px", fontSize:14 }} />
+        </div>
+        {/* Pick player */}
+        <div>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:5, fontWeight:700 }}>BACKING PLAYER</div>
+          <select value={pickedPlayer} onChange={e=>setPickedPlayer(e.target.value)}
+            style={{ ...selStyle, background:"#0a1a2a", border:`1px solid ${C.blue}`, padding:"10px 12px" }}>
+            <option value="">— pick player —</option>
+            {names.map(n=>{
+              const r = standings.findIndex(s=>s.name===n);
+              const sp = getSharePrice(n, standings, players, season);
+              const tot = (supporters||[]).reduce((s,x)=>x.playerName===n||x.player===n?s+(parseInt(x.shares)||0):s,0);
+              return <option key={n} value={n}>{n} (#{r>=0?r+1:'?'} · ${sp}/sh · {tot}/50 sold)</option>;
+            })}
+          </select>
+        </div>
+        {/* Shares qty */}
+        <div>
+          <div style={{ fontSize:11, color:C.gray, marginBottom:5, fontWeight:700 }}>SHARES (1–{maxBuy})</div>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <button onClick={()=>setQty(q=>Math.max(1,q-1))} style={{ ...btnSm, width:36, height:36, fontSize:20 }}>−</button>
+            <span style={{ fontSize:22, fontWeight:900, color:C.gold, minWidth:32, textAlign:"center" }}>{qty}</span>
+            <button onClick={()=>setQty(q=>Math.min(maxBuy||5,q+1))} style={{ ...btnSm, width:36, height:36, fontSize:20 }}>+</button>
+          </div>
+          <div style={{ fontSize:10, color:C.gray, marginTop:4 }}>
+            <label style={{ cursor:"pointer", userSelect:"none" }}>
+              <input type="checkbox" checked={isSelf} onChange={e=>setIsSelf(e.target.checked)} style={{ marginRight:4 }} />
+              Player self-buy ($25/sh)
+            </label>
+          </div>
+        </div>
+        {/* Summary + Add */}
+        <div style={{ textAlign:"center" }}>
+          {playerName ? (
+            <>
+              <div style={{ fontSize:10, color:C.gray, marginBottom:2 }}>{rankLabel} · ${sharePrice}/share</div>
+              <div style={{ fontSize:22, fontWeight:900, color:C.green, marginBottom:8 }}>${total}</div>
+            </>
+          ) : <div style={{ fontSize:13, color:C.gray, marginBottom:28 }}>Pick player</div>}
+          <button onClick={handleAdd}
+            style={{ background:C.blue, border:"none", color:"#fff", borderRadius:8, padding:"10px 0", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700, width:"100%" }}>
+            {added ? "✅ Added!" : "Add Purchase"}
+          </button>
+        </div>
+      </div>
+      {playerName && <div style={{ marginTop:8, fontSize:11, color:C.gray }}>
+        📊 {playerName}: {existing} shares sold · {remaining} remaining of {SHARE_CAP_PER_PLAYER} cap · Current price ${sharePrice}/share
+      </div>}
+    </div>
+  );
+}
+
 function SharesView({ supporters, setSupporters, players, money, standings, playoffs, season }) {
   const updSupp = (i,k,v) => setSupporters(ss=>ss.map((s,idx)=>idx===i?{...s,[k]:v}:s));
   const names = players.map(p=>p.name).filter(Boolean);
@@ -1820,7 +2159,7 @@ function SharesView({ supporters, setSupporters, players, money, standings, play
                 <div style={{ background:C.cardBorder, borderRadius:4, height:6, marginBottom:4 }}>
                   <div style={{ width:`${pct*100}%`, height:"100%", background:color, borderRadius:4, transition:"width 0.3s" }} />
                 </div>
-                <div style={{ fontSize:11, color, fontWeight:700 }}>{tot}/{SHARE_CAP_PER_PLAYER} — {$$(getSharePrice(n,standings,[],season))}/sh</div>
+                <div style={{ fontSize:11, color, fontWeight:700 }}>{tot}/{SHARE_CAP_PER_PLAYER} — ${getSharePrice(n,standings,players,season)}/sh</div>
               </div>
             );
           })}
@@ -1837,6 +2176,8 @@ function SharesView({ supporters, setSupporters, players, money, standings, play
           ))}
         </div>
       </Card>
+      <QuickBuyPanel names={names} standings={standings} players={players} supporters={supporters} setSupporters={setSupporters} season={season} />
+
       <div style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${C.cardBorder}` }}>
         <div style={{ display:"grid", gridTemplateColumns:"24px 1fr 1fr 70px 80px 80px 90px 90px 90px", gap:4, padding:"10px 10px", background:C.dimBg }}>
           {["#","Supporter","Backing","Shares","Paid $","Mkt $","Gain","Playoff $","Status"].map(h=>(
@@ -2408,27 +2749,175 @@ function RulesView() {
   const [activeGame, setActiveGame] = React.useState('straight8');
   const games = {
     straight8: {
-      title: "Straight 8-Ball",
-      icon: "🎱",
-      color: C.blue,
-      vol: "×1.0 (base)",
-      obj: "Pocket all 7 of your group (solids or stripes) then legally pocket the 8-ball to win.",
+      title: "Straight 8-Ball", icon: "🎱", color: C.blue, vol: "×1.0 (base)",
+      obj: "Pocket all 7 of your group then legally pocket the 8-ball to win.",
       rules: [
-        "Break: Cue ball must hit the rack. If you pocket a ball on the break, you keep shooting. 8-ball on break = re-rack (or spot, varies by house rules).",
-        "Groups assigned: First player to pocket a ball (non-8) after the break claims that group (solids 1–7 or stripes 9–15).",
-        "Legal shot: You must hit one of your own balls first. Ball or cue must contact a cushion after contact, OR pocket a ball.",
+        "Break: Cue ball must hit the rack. Pocket a ball on break = keep shooting. 8-ball on break = re-rack.",
+        "Groups: First to pocket a non-8 ball claims solids (1–7) or stripes (9–15).",
+        "Legal shot: Hit one of your balls first. A ball or cue must reach a cushion, OR pocket a ball.",
         "Scratch: Opponent gets ball-in-hand anywhere on the table.",
-        "8-Ball: Call the pocket. You must pocket all your group first. Scratching on the 8 = loss. Pocketing 8 in wrong pocket = loss.",
+        "8-Ball: Call the pocket. Clear your group first. Scratch on 8 = loss. Wrong pocket = loss.",
         "Win: Pocket the 8-ball legally after clearing your group.",
       ]
     },
     bca8: {
-      title: "8-Ball — BCA Rules",
-      icon: "🔵",
-      color: C.purple,
-      vol: "×1.1",
-      obj: "Same as straight 8-ball with stricter fouls and ball-in-hand rules enforced tournament-style.",
+      title: "8-Ball — BCA Rules", icon: "🔵", color: C.purple, vol: "×1.1",
+      obj: "Same as straight 8-ball with stricter fouls enforced tournament-style.",
       rules: [
-        "Break requirements: At least 4 balls must hit cushions OR a ball must be pocketed. Failure = opponent's choice: re-rack or accept table as-is.",
-        "Ball-in-hand: After any foul, opponent places cue ball ANYWHERE on the table (not just behind the line).",
-        "Push-out rule: On the first shot after the break (before groups are decided), the shooter may push out. The opponent then decides to shoot or pass.",
+        "Break: At least 4 balls must hit cushions OR a ball pocketed. Failure = opponent chooses re-rack or accept.",
+        "Ball-in-hand: After ANY foul, opponent places cue ball ANYWHERE on the table.",
+        "Push-out: On the first shot after the break (before groups assigned) shooter may 'push out'. Opponent decides to shoot or pass.",
+        "Obvious pocket: 8-ball shot must be 'obvious'; no need to call if unambiguous.",
+        "Foul = loss of turn: Failure to hit own ball first, no rail contact, double-hit, ball off table.",
+        "Win: Legally pocket the 8-ball in called pocket after clearing your group.",
+      ]
+    },
+    "9ball": {
+      title: "9-Ball", icon: "🟡", color: C.gold, vol: "×1.2",
+      obj: "Legally pocket the 9-ball. Must always hit the lowest-numbered ball on the table first.",
+      rules: [
+        "Break: Must hit the 1-ball first. Must pocket a ball or drive 4 balls to rails. Failure = opponent's choice.",
+        "Lowest ball first: Cue ball must contact the lowest-numbered ball on the table FIRST on every shot.",
+        "Combo wins: You can pocket the 9-ball on ANY shot (including the break) via legal combo — that wins immediately.",
+        "Push-out: After the break, the shooter may push out once. Opponent decides to shoot or pass.",
+        "Fouls: Scratch, miss lowest ball, no rail after contact, ball off table = ball-in-hand for opponent.",
+        "Win: Legally pocket the 9-ball (directly or via combination) at any time during the rack.",
+      ]
+    },
+    "10ball": {
+      title: "10-Ball", icon: "🔴", color: C.red, vol: "×1.3",
+      obj: "Must CALL every shot (ball + pocket). Highest volatility — most skill required.",
+      rules: [
+        "Break: Must pocket a called ball OR drive 4+ balls to rails. Failure = re-rack or opponent accepts.",
+        "Call shot: Every shot must call the ball AND the pocket. Combos allowed but all intermediate balls must be called.",
+        "Lowest ball first: Must contact lowest-numbered ball first (same as 9-ball).",
+        "Slop: Any un-called pocketed ball is spotted. No 'accidental' wins.",
+        "Fouls: Same as 9-ball — ball-in-hand anywhere for opponent.",
+        "Win: Legally pocket the 10-ball in the called pocket. MUST be called — no slop 10-ball win.",
+      ]
+    },
+  };
+  const g = games[activeGame];
+  const gameKeys = Object.keys(games);
+  return (
+    <div>
+      <PageTitle icon="📖" title="Official Rules" desc="Select a game type to see the rules used in BML matches." />
+      <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+        {gameKeys.map(key => {
+          const gm = games[key];
+          return (
+            <button key={key} onClick={() => setActiveGame(key)} style={{
+              background: activeGame===key ? gm.color+"33" : C.card,
+              border: `2px solid ${activeGame===key ? gm.color : C.cardBorder}`,
+              color: activeGame===key ? gm.color : C.gray,
+              borderRadius: 10, padding: "10px 18px", cursor: "pointer",
+              fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ fontSize: 20 }}>{gm.icon}</span>
+              <div style={{ textAlign: "left" }}>
+                <div>{gm.title}</div>
+                <div style={{ fontSize: 10, opacity: 0.7 }}>Vol {gm.vol}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ background: C.card, border: `2px solid ${g.color}`, borderRadius: 14, padding: "20px 24px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+          <span style={{ fontSize: 40 }}>{g.icon}</span>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: g.color }}>{g.title}</div>
+            <div style={{ fontSize: 13, color: C.gray }}>Volatility multiplier: <strong style={{ color: g.color }}>{g.vol}</strong> — higher vol = bigger share price swings</div>
+          </div>
+        </div>
+        <div style={{ background: C.dimBg, border: `1px solid ${g.color}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: C.white, lineHeight: 1.6 }}>
+          <strong style={{ color: g.color }}>Objective:</strong> {g.obj}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {g.rules.map((rule, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, padding: "10px 14px", background: C.dimBg, borderRadius: 8, borderLeft: `3px solid ${g.color}` }}>
+              <span style={{ color: g.color, fontWeight: 900, minWidth: 22, fontSize: 13 }}>{i+1}.</span>
+              <span style={{ fontSize: 13, color: C.white, lineHeight: 1.6 }}>{rule}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginTop: 16, background: "#001a10", border: `1px solid ${C.green}`, borderRadius: 10, padding: "14px 18px", fontSize: 13, color: C.green }}>
+        💡 <strong>Share volatility</strong>: Game type multiplies price swings. 10-Ball (×1.3) creates the biggest share price moves — back risky players for higher potential returns.
+      </div>
+    </div>
+  );
+}
+// ─── MANUAL VIEW ──────────────────────────────────────────────────────────────
+function ManualView({ money, season, bars }) {
+  return (
+    <div>
+      <PageTitle icon="📗" title="Operator Manual" desc="Everything you need to run BML from start to finish." />
+      <Card title="📋 Season 1 Quickstart" icon="🚀" borderColor={C.gold}>
+        <div style={{ fontSize: 13, color: C.gray, lineHeight: 2 }}>
+          <div>1️⃣ <strong style={{ color: C.white }}>Add Players tab</strong> — Enter all 16 player names. Check Reg Paid ($175) when collected. Assign to a bar.</div>
+          <div>2️⃣ <strong style={{ color: C.white }}>Generate Schedule</strong> — Click "Generate Schedule" on the Players tab to auto-fill all 8 weeks of round-robin matches.</div>
+          <div>3️⃣ <strong style={{ color: C.white }}>Shares tab</strong> — Open the share market. Each player starts at $35/share. Use Quick Buy to record supporter purchases.</div>
+          <div>4️⃣ <strong style={{ color: C.white }}>Matches tab</strong> — Each week, record scores. Standings update automatically.</div>
+          <div>5️⃣ <strong style={{ color: C.white }}>Standings tab</strong> — Share prices update live based on current rank. Show this to players and supporters.</div>
+          <div>6️⃣ <strong style={{ color: C.white }}>End of Season</strong> — Go to Shares tab. Cash out supporters (or hold for S2). Record payouts.</div>
+        </div>
+      </Card>
+      <Card title="💵 Money Flow" icon="💵" borderColor={C.green}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {[
+            { label: "S1 Reg (×16)", val: `$${16*175}`, note: "$175/player", color: C.green },
+            { label: "Weekly dues", val: "$25/player/wk", note: "×16 players ×8 wks = $3,200 max", color: C.blue },
+            { label: "Share revenue (15% fee)", val: "15% of vol", note: "You keep 15% of total share volume", color: C.gold },
+            { label: "Bar cut", val: "10% reg + 3% shares", note: "Per your bar deal", color: C.orange },
+          ].map(({ label, val, note, color }) => (
+            <div key={label} style={{ background: C.dimBg, borderRadius: 8, padding: 14, border: `1px solid ${color}33` }}>
+              <div style={{ fontSize: 11, color: C.gray, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 16, fontWeight: 900, color }}>{val}</div>
+              <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }}>{note}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card title="📈 Share Market Rules" icon="📈" borderColor={C.purple}>
+        <div style={{ fontSize: 13, color: C.gray, lineHeight: 2 }}>
+          <div>• <strong style={{ color: C.white }}>Starting price:</strong> $35/share for all unranked players</div>
+          <div>• <strong style={{ color: C.white }}>Price tiers:</strong> Unranked $35 · Top 8 $60 · Top 4 $90 · #2 $120 · #1 $150</div>
+          <div>• <strong style={{ color: C.white }}>Supporter limit:</strong> 5 shares max per purchase per price change</div>
+          <div>• <strong style={{ color: C.white }}>Player self-buy:</strong> $25/share, max 6 shares of their own</div>
+          <div>• <strong style={{ color: C.white }}>Cap per player:</strong> 50 total shares (all supporters + player combined)</div>
+          <div>• <strong style={{ color: C.white }}>Operator fee:</strong> 15% of all share volume goes to operators</div>
+          <div>• <strong style={{ color: C.white }}>Bar cut:</strong> 3% of share volume goes to the host bar</div>
+        </div>
+      </Card>
+      <Card title="🏆 Prize Payouts" icon="🏆" borderColor={C.red}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {[
+            { season: "S1", prizes: ["1st: $750", "2nd: $350", "3rd: $150", "MVP: $0"], color: C.gold },
+            { season: "S2", prizes: ["1st: $1,500", "2nd: $700", "3rd: $300", "MVP: $0"], color: C.purple },
+            { season: "S3 Playoffs", prizes: ["1st: $3,000", "2nd: $1,500", "3rd: $750", "MVP: $0"], color: C.red },
+          ].map(({ season: s, prizes, color }) => (
+            <div key={s} style={{ background: C.dimBg, borderRadius: 8, padding: 14, border: `1px solid ${color}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 8 }}>{s}</div>
+              {prizes.map(p => <div key={p} style={{ fontSize: 13, color: C.gray, padding: "3px 0" }}>{p}</div>)}
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card title="💡 Tips" icon="💡" borderColor={C.blue}>
+        <div style={{ fontSize: 13, color: C.gray, lineHeight: 2 }}>
+          <div>• Collect reg fees BEFORE the first match. No pay = no play.</div>
+          <div>• Take cash or Stripe payment links. Mark paid immediately in the Players tab.</div>
+          <div>• Post the standings QR or screen at the bar each week — it drives share activity.</div>
+          <div>• Let supporters know: their shares auto-update in value every time standings change.</div>
+          <div>• S1 winners get free/discounted S3 entry — remind them early to lock it in.</div>
+          <div>• The 15% operator share fee is your cash-flow engine — the more shares sold, the more you make.</div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+</script>
+</body>
+</html>
